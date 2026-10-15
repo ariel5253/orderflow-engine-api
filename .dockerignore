@@ -1,0 +1,8 @@
+# Local configuration never enters an image
+.env
+
+# Version control, build output and editor files are not part of the build context
+.git
+target/
+.idea/
+.vscode/
