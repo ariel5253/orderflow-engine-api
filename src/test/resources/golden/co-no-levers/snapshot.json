@@ -1,0 +1,9 @@
+{
+  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP" },
+  "products": [
+    { "sku": "BEV-COLA-350", "listPrice": "2500", "taxRate": "0.190000" },
+    { "sku": "BEV-COLA-1500", "listPrice": "5200", "taxRate": "0.190000" },
+    { "sku": "SNK-CHIPS-45", "listPrice": "1800", "taxRate": "0.050000" },
+    { "sku": "BEV-WATER-600", "listPrice": "1500", "taxRate": "0.190000" }
+  ]
+}
