@@ -1,0 +1,9 @@
+# Line endings and binaries (repository integrity policy)
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.pdf binary
+*.docx binary
+*.png binary
+*.jpg binary

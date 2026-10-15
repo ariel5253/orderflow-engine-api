@@ -1,0 +1,11 @@
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Maven build output
+target/
+
+# Local environment: only .env.example is versioned
+.env
