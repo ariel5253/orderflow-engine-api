@@ -27,7 +27,7 @@ docker compose up --build
 
 Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
 
-Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on the pricing domain and requires that at least 80% of the injected faults are detected. While `pricing.domain` has no classes, PIT stops the build with "No mutations found", on purpose, so that a wrong target filter can never pass unnoticed.
+Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on the pricing domain and requires that at least 80% of the injected faults are detected.
 
 ## Lever order
 

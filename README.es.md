@@ -27,7 +27,7 @@ docker compose up --build
 
 Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
 
-Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre el dominio de precios y exige que se detecte al menos el 80% de los fallos inyectados. Mientras `pricing.domain` no tenga clases, PIT detiene el build con "No mutations found", a propósito, para que un filtro de clases equivocado nunca pase inadvertido.
+Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre el dominio de precios y exige que se detecte al menos el 80% de los fallos inyectados.
 
 ## Orden de las palancas
 
