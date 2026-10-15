@@ -65,7 +65,10 @@ public final class TierDiscountStep {
         }
     }
 
-    /** The units of one paid line that can earn a tier discount, and the product they belong to. */
+    /**
+     * Units of one paid line and the product they belong to: all of them when a combo may consume
+     * them, and the ones left when they can earn a tier discount.
+     */
     public record Units(Product product, long count) {
 
         public Units {

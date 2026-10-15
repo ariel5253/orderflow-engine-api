@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.ComboRule;
+import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
@@ -23,6 +25,7 @@ class PricingPipelineOrderTest {
 
     private static final UUID COLAS_RULE = UUID.fromString("01a13cdb-cc00-7002-8003-000000000001");
     private static final UUID PLANTAIN_RULE = UUID.fromString("01a13cdb-cc00-7002-8003-000000000000");
+    private static final UUID COMBO_RULE = UUID.fromString("01a13cdb-cc00-7002-8004-000000000001");
 
     private static final List<Product> CATALOG = List.of(
             product("BEV-COLA-350", "colas", "0.60", "0.150000"),
@@ -35,7 +38,7 @@ class PricingPipelineOrderTest {
             new Bracket(12, new BigDecimal("0.040000")),
             new Bracket(24, new BigDecimal("0.080000"))));
 
-    private static final PricingSnapshot EC_ALPHA = new PricingSnapshot(USD, CATALOG, List.of(COLAS));
+    private static final PricingSnapshot EC_ALPHA = new PricingSnapshot(USD, CATALOG, List.of(COLAS), List.of());
 
     private final PricingEngine engine = new PricingEngine();
 
@@ -49,6 +52,18 @@ class PricingPipelineOrderTest {
 
     private static Discount tier(UUID rule, String amount) {
         return new Discount(Discount.Kind.TIER, rule, usd(amount));
+    }
+
+    // 2 colas 1500 and 1 plantain chips, listed at 2.90 + 0.55 = 3.45, with the colas family rule.
+    private static PricingSnapshot withCombo(String comboPrice) {
+        ComboRule combo = new ComboRule(COMBO_RULE, usd(comboPrice), List.of(
+                new Item("BEV-COLA-1500", 2),
+                new Item("SNK-PLANTAIN-45", 1)));
+        return new PricingSnapshot(USD, CATALOG, List.of(COLAS), List.of(combo));
+    }
+
+    private static ComboAllocation part(String amount) {
+        return new ComboAllocation(COMBO_RULE, usd(amount));
     }
 
     @Test
@@ -141,7 +156,7 @@ class PricingPipelineOrderTest {
         // 0.55 x 10% = 0.055 -> 0.06.
         TierRule plantain = new TierRule(PLANTAIN_RULE, Scope.SKU, "SNK-PLANTAIN-45",
                 List.of(new Bracket(2, new BigDecimal("0.100000"))));
-        PricingSnapshot snapshot = new PricingSnapshot(USD, CATALOG, List.of(COLAS, plantain));
+        PricingSnapshot snapshot = new PricingSnapshot(USD, CATALOG, List.of(COLAS, plantain), List.of());
 
         Breakdown breakdown = engine.price(new Cart(List.of(
                 new CartLine("BEV-COLA-1500", 12),
@@ -153,6 +168,48 @@ class PricingPipelineOrderTest {
         assertThat(breakdown.totals().discounts()).containsExactly(
                 tier(PLANTAIN_RULE, "0.06"),
                 tier(COLAS_RULE, "0.06"));
+    }
+
+    @Test
+    void appliesCombosBeforeTiersAndTaxesTheLinesAfterBoth() {
+        // Step 2: one application takes 2 of the 14 colas 1500 and the plantain chips, 3.45 for
+        // 3.00. Its 0.45 splits into 0.3783 and 0.0717: 37 r 285 and 7 r 60 cents (over 345), and the
+        // leftover cent goes to the colas, 0.38 and 0.07. Step 3 counts only the 12 colas left: unit
+        // 12 at 4% gives 0.058 -> 0.06. Counted on all 14, as with tiers first, units 12 to 14 would
+        // give 0.174 -> 0.17. Step 6 taxes 20.30 - 0.06 - 0.38 = 19.86: 2.979 -> 2.98, where the
+        // base before the allocation would give 20.24 x 15% = 3.036 -> 3.04. The chips' 0.48 give
+        // 0.072 -> 0.07.
+        Breakdown breakdown = engine.price(new Cart(List.of(
+                new CartLine("SNK-PLANTAIN-45", 1),
+                new CartLine("BEV-COLA-1500", 14))), withCombo("3.00"));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::discounts, LineBreakdown::comboAllocations,
+                        LineBreakdown::net, LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", List.of(tier(COLAS_RULE, "0.06")), List.of(part("0.38")),
+                                usd("19.86"), usd("19.86"), usd("2.98")),
+                        tuple("SNK-PLANTAIN-45", List.of(), List.of(part("0.07")),
+                                usd("0.48"), usd("0.48"), usd("0.07")));
+        assertThat(breakdown.totals()).isEqualTo(new Totals(usd("20.85"),
+                List.of(new Discount(Discount.Kind.COMBO, COMBO_RULE, usd("0.45")), tier(COLAS_RULE, "0.06")),
+                usd("20.34"), usd("3.05"), usd("23.39")));
+    }
+
+    @Test
+    void aComboThatSavesNothingLeavesEveryUnitToTheTierStep() {
+        // At 3.45 the combo costs what its units list at, so it consumes nothing (BR-03) and the tier
+        // step counts all 14 colas 1500: units 12 to 14 give 3 x 1.45 x 4% = 0.174 -> 0.17.
+        Breakdown breakdown = engine.price(new Cart(List.of(
+                new CartLine("BEV-COLA-1500", 14),
+                new CartLine("SNK-PLANTAIN-45", 1))), withCombo("3.45"));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::discounts, LineBreakdown::comboAllocations)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", List.of(tier(COLAS_RULE, "0.17")), List.of()),
+                        tuple("SNK-PLANTAIN-45", List.of(), List.of()));
+        assertThat(breakdown.totals().discounts()).containsExactly(tier(COLAS_RULE, "0.17"));
     }
 
     @Test

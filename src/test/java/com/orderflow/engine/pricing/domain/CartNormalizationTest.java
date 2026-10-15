@@ -24,7 +24,7 @@ class CartNormalizationTest {
     private static final PricingSnapshot CO_ALPHA = new PricingSnapshot(COP, List.of(
             product("BEV-COLA-1500", "colas", "5200", "0.190000"),
             product("BEV-WATER-600", "waters", "1500", "0.190000"),
-            product("SNK-CHIPS-45", "snacks", "1800", "0.050000")), List.of());
+            product("SNK-CHIPS-45", "snacks", "1800", "0.050000")), List.of(), List.of());
 
     private final PricingEngine engine = new PricingEngine();
 

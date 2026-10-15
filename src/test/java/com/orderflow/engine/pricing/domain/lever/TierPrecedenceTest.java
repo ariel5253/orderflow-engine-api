@@ -57,7 +57,7 @@ class TierPrecedenceTest {
     }
 
     private Breakdown price(List<TierRule> rules, CartLine... lines) {
-        return engine.price(new Cart(List.of(lines)), new PricingSnapshot(USD, CATALOG, rules));
+        return engine.price(new Cart(List.of(lines)), new PricingSnapshot(USD, CATALOG, rules, List.of()));
     }
 
     @Test

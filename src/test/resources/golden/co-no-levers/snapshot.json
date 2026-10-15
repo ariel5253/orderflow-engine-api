@@ -6,5 +6,6 @@
     { "sku": "SNK-CHIPS-45", "family": "snacks", "listPrice": "1800", "taxRate": "0.050000" },
     { "sku": "BEV-WATER-600", "family": "waters", "listPrice": "1500", "taxRate": "0.190000" }
   ],
-  "tierRules": []
+  "tierRules": [],
+  "comboRules": []
 }

@@ -1,5 +1,6 @@
 package com.orderflow.engine.pricing.domain;
 
+import com.orderflow.engine.pricing.domain.lever.ComboRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -14,17 +15,19 @@ import java.util.UUID;
 /**
  * Everything the engine reads to price a cart at one moment: the currency policy of the tenant's
  * country, the products the tenant sells, with their family, list price and tax rate at that
- * moment, and the active tier rules. The engine reads nothing else, so the same cart and snapshot
- * always give the same breakdown. A SKU that is missing from the snapshot is unknown to the tenant,
- * whether no tenant sells it or another tenant does.
+ * moment, and the active tier and combo rules. The engine reads nothing else, so the same cart and
+ * snapshot always give the same breakdown. A SKU that is missing from the snapshot is unknown to the
+ * tenant, whether no tenant sells it or another tenant does.
  */
 public final class PricingSnapshot {
 
     private final CurrencyPolicy policy;
     private final Map<String, Product> productsBySku;
     private final List<TierRule> tierRules;
+    private final List<ComboRule> comboRules;
 
-    public PricingSnapshot(CurrencyPolicy policy, List<Product> products, List<TierRule> tierRules) {
+    public PricingSnapshot(CurrencyPolicy policy, List<Product> products, List<TierRule> tierRules,
+            List<ComboRule> comboRules) {
         this.policy = Objects.requireNonNull(policy, "policy");
         Map<String, Product> bySku = new HashMap<>();
         for (Product product : products) {
@@ -39,6 +42,8 @@ public final class PricingSnapshot {
         this.productsBySku = Map.copyOf(bySku);
         requireDistinctRules(tierRules);
         this.tierRules = List.copyOf(tierRules);
+        requireDistinctCombos(comboRules, policy);
+        this.comboRules = List.copyOf(comboRules);
     }
 
     // The database keys each rule by its id and keeps one active rule per target (BR-02), so a
@@ -57,6 +62,20 @@ public final class PricingSnapshot {
         }
     }
 
+    // The database keys each combo by its id, and a combo is priced in the tenant's currency.
+    private static void requireDistinctCombos(List<ComboRule> comboRules, CurrencyPolicy policy) {
+        Set<UUID> ids = new HashSet<>();
+        for (ComboRule rule : comboRules) {
+            if (!ids.add(rule.id())) {
+                throw new IllegalArgumentException("Combo rule " + rule.id() + " is listed twice");
+            }
+            if (!rule.comboPrice().policy().equals(policy)) {
+                throw new IllegalArgumentException("Combo rule " + rule.id() + " is priced with "
+                        + rule.comboPrice().policy() + ", not with " + policy);
+            }
+        }
+    }
+
     public CurrencyPolicy policy() {
         return policy;
     }
@@ -69,6 +88,11 @@ public final class PricingSnapshot {
     /** The active tier rules of the tenant, at most one per SKU and one per family. */
     public List<TierRule> tierRules() {
         return tierRules;
+    }
+
+    /** The active combo rules of the tenant, in the order they were given. */
+    public List<ComboRule> comboRules() {
+        return comboRules;
     }
 
     /**
