@@ -1,5 +1,7 @@
 package com.orderflow.engine.adapters.in.web;
 
+import com.orderflow.engine.pricing.domain.CartRejectedException;
+import com.orderflow.engine.quoting.QuoteRejectedException;
 import java.util.Locale;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -36,6 +38,20 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ApiException.class)
     ResponseEntity<Object> handleApiException(ApiException ex, WebRequest request) {
         return problem(ex, ex.code(), ex.code().status(), new HttpHeaders(), request);
+    }
+
+    /** A cart rejected by SPEC BR-00. Its code is named after the public code, so it maps by name. */
+    @ExceptionHandler(CartRejectedException.class)
+    ResponseEntity<Object> handleCartRejected(CartRejectedException ex, WebRequest request) {
+        ErrorCode code = ErrorCode.valueOf(ex.code().name());
+        return problem(ex, code, code.status(), new HttpHeaders(), request);
+    }
+
+    /** A quote operation rejected by the quoting rules. Its code is named after the public code, so it maps by name. */
+    @ExceptionHandler(QuoteRejectedException.class)
+    ResponseEntity<Object> handleQuoteRejected(QuoteRejectedException ex, WebRequest request) {
+        ErrorCode code = ErrorCode.valueOf(ex.code().name());
+        return problem(ex, code, code.status(), new HttpHeaders(), request);
     }
 
     @ExceptionHandler(Exception.class)

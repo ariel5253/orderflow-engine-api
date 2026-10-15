@@ -1,0 +1,9 @@
+{
+  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP" },
+  "quoteTtl": "PT15M",
+  "products": [
+    { "sku": "BEV-COLA-1500", "name": "Cola 1.5 l", "listPrice": "5200", "taxRate": "0.190000" },
+    { "sku": "BEV-WATER-600", "name": "Water 600 ml", "listPrice": "1500", "taxRate": "0.190000" }
+  ],
+  "credit": { "limit": "500000", "consumed": "100000" }
+}
