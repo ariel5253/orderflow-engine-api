@@ -17,7 +17,7 @@ Order pricing engine and idempotent order confirmation for a multi-country B2B b
 ./mvnw verify
 ```
 
-This **single command** builds the service and runs every test: unit, golden, integration, contract and architecture. It also enforces the coverage gate (≥ 90% on `pricing`).
+This **single command** builds the service and runs every test of the service. It also enforces the coverage gate (≥ 90% on `pricing`).
 
 To run the service with its own PostgreSQL, from this repository alone:
 
@@ -27,7 +27,7 @@ docker compose up --build
 
 Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
 
-Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on the pricing domain and requires that at least 80% of the injected faults are detected.
+Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on the pricing domain and requires that at least 80% of the injected faults are detected. While `pricing.domain` has no classes, PIT stops the build with "No mutations found", on purpose, so that a wrong target filter can never pass unnoticed.
 
 ## Lever order
 
@@ -98,6 +98,7 @@ Every golden test is tagged `@Tag("golden")` and asserts the full breakdown.
 | Real push and ERP clients | Fakes behind ports prove the delivery guarantees |
 | SonarQube or SonarCloud | It needs a server. It imports the JaCoCo XML report this build already produces, so it can be added in CI without project changes |
 | OpenAPI file, deployment | Not required. The contract is `spec/api-contract.md` in the `orderflow-engine-docs` repository |
+| Separate migration job and least-privilege database roles | Liquibase applies the schema when the service starts, with the owner's credential. In production a one-shot job would migrate with an owner role and the service would connect with a DML-only role. It is recorded as an adoption path in `spec/plan.md` §3 of the `orderflow-engine-docs` repository |
 
 ## Repositories
 
