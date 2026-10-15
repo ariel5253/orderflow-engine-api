@@ -17,7 +17,7 @@ Motor de cálculo de pedidos y confirmación idempotente para un marketplace B2B
 ./mvnw verify
 ```
 
-Este **comando único** compila el servicio y ejecuta todas las pruebas: unitarias, golden, de integración, de contrato y de arquitectura. También exige el umbral de cobertura (≥ 90% en `pricing`).
+Este **comando único** compila el servicio y ejecuta todas sus pruebas. También exige el umbral de cobertura (≥ 90% en `pricing`).
 
 Para ejecutar el servicio con su propio PostgreSQL, solo desde este repositorio:
 
@@ -27,7 +27,7 @@ docker compose up --build
 
 Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
 
-Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre el dominio de precios y exige que se detecte al menos el 80% de los fallos inyectados.
+Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre el dominio de precios y exige que se detecte al menos el 80% de los fallos inyectados. Mientras `pricing.domain` no tenga clases, PIT detiene el build con "No mutations found", a propósito, para que un filtro de clases equivocado nunca pase inadvertido.
 
 ## Orden de las palancas
 
@@ -98,6 +98,7 @@ Cada golden test lleva la etiqueta `@Tag("golden")` y verifica el desglose compl
 | Clientes reales de push y ERP | Los fakes detrás de puertos prueban las garantías de entrega |
 | SonarQube o SonarCloud | Necesita un servidor. Importa el reporte XML de JaCoCo que este build ya genera, así que puede agregarse en CI sin cambiar el proyecto |
 | Archivo OpenAPI, despliegue | No se piden. El contrato es `spec/api-contract.md` del repositorio `orderflow-engine-docs` (en inglés) |
+| Job de migración aparte y roles de base de datos con mínimo privilegio | Liquibase aplica el esquema cuando arranca el servicio, con la credencial del dueño. En producción, un job de una sola ejecución migraría con un rol dueño y el servicio se conectaría con un rol solo DML. Queda registrado como camino de adopción en `spec/plan.md` §3 del repositorio `orderflow-engine-docs` |
 
 ## Repositorios
 

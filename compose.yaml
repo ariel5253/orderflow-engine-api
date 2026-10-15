@@ -1,0 +1,33 @@
+# The service and its PostgreSQL. Every value comes from .env when it exists, otherwise from the
+# default after ":-", which is the .env.example value, so a fresh clone starts without a .env.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${DB_NAME:-orderflow}
+      POSTGRES_USER: ${DB_USER:-orderflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --host=127.0.0.1 --username=\"$${POSTGRES_USER}\" --dbname=\"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME:-orderflow}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-orderflow}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-change-me}
+      SERVER_PORT: ${API_PORT:-8080}
+    ports:
+      - "${API_PORT:-8080}:${API_PORT:-8080}"
+
+volumes:
+  db-data:
