@@ -1,9 +1,25 @@
 # The database connection is read only from the environment, through Spring's relaxed binding of
 # SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD. No default is set here.
-# SERVER_PORT overrides the HTTP port, 8080 by default.
+# SERVER_PORT overrides the HTTP port, 8080 by default. APP_I18N_DEFAULT_LOCALE overrides app.i18n.default-locale.
 spring:
   application:
     name: orderflow-engine-api
   # The schema lives with its only owner, this service, and is applied at startup (DEC-20).
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+  # User text lives only in these bundles (SPEC §9). The JVM's own locale is never consulted, so the
+  # server's language can never leak into a response.
+  messages:
+    basename: i18n/messages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+
+app:
+  i18n:
+    # Language of the user text when Accept-Language is missing or names no supported language.
+    default-locale: es
+
+logging:
+  pattern:
+    # Every log line of a request carries its correlation id, the same one its error body shows.
+    correlation: "[%X{correlationId:-}] "
