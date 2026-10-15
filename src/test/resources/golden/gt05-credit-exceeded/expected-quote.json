@@ -1,0 +1,27 @@
+{
+  "quoteId": "01a13cdb-cc00-7001-8006-000000000005",
+  "status": "OPEN",
+  "expiresAt": "2026-10-15T15:15:00Z",
+  "currency": "COP",
+  "lines": [
+    {
+      "sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "qty": 60, "isGift": false,
+      "unitPrice": "5200", "gross": "312000", "discounts": [], "comboAllocations": [],
+      "net": "312000", "taxableBase": "312000", "taxRate": "0.190000", "tax": "59280"
+    },
+    {
+      "sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 40, "isGift": false,
+      "unitPrice": "1500", "gross": "60000", "discounts": [], "comboAllocations": [],
+      "net": "60000", "taxableBase": "60000", "taxRate": "0.190000", "tax": "11400"
+    }
+  ],
+  "totals": {
+    "grossSubtotal": "372000",
+    "discounts": [],
+    "gifts": [],
+    "taxableBase": "372000",
+    "taxes": "70680",
+    "total": "442680"
+  },
+  "credit": { "fits": false, "available": "400000", "shortfall": "42680" }
+}
