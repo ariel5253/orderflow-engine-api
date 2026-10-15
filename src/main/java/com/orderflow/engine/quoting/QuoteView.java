@@ -88,8 +88,11 @@ public record QuoteView(
         return new QuoteView(quoteId, status, expiresAt, currency, lines, totals, credit);
     }
 
-    /** Renders a stored quote in the given status, with no credit check (data model §6). */
-    static QuoteView render(StoredQuote stored, QuoteStatus status) {
+    /**
+     * Renders a stored quote in the given status, with no credit check (data model §6). The order of a confirmed quote
+     * is rendered this way too, so quote and order always show the same figures.
+     */
+    public static QuoteView render(StoredQuote stored, QuoteStatus status) {
         SealedQuote sealed = stored.sealed();
         CurrencyPolicy currency = sealed.currency();
         List<Line> lines = sealed.lines().stream()
