@@ -1,0 +1,7 @@
+{
+  "paymentMethod": "CASH",
+  "lines": [
+    { "sku": "SNK-CHIPS-45", "qty": 25 },
+    { "sku": "BEV-WATER-600", "qty": 3 }
+  ]
+}

@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * The result of pricing a cart: the ISO currency code, one line per normalized cart line in SKU
- * order, and the totals.
+ * order followed by one gift line per gift granted, in gift-rule order, and the totals.
  */
 public record Breakdown(String currency, List<LineBreakdown> lines, Totals totals) {
 

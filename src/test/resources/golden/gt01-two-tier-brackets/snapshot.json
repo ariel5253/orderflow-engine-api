@@ -1,5 +1,5 @@
 {
-  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP" },
+  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP", "giftTaxPolicy": "TAXED" },
   "products": [
     { "sku": "BEV-COLA-350", "family": "colas", "listPrice": "2500", "taxRate": "0.190000" },
     { "sku": "BEV-COLA-1500", "family": "colas", "listPrice": "5200", "taxRate": "0.190000" },
@@ -16,5 +16,6 @@
       ]
     }
   ],
-  "comboRules": []
+  "comboRules": [],
+  "giftRules": []
 }

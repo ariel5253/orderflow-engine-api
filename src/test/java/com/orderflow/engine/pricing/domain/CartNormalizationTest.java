@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import com.orderflow.engine.pricing.domain.CartRejectedException.Code;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -21,10 +22,10 @@ class CartNormalizationTest {
 
     private static final CurrencyPolicy COP = new CurrencyPolicy("COP", 0, RoundingMode.HALF_UP);
 
-    private static final PricingSnapshot CO_ALPHA = new PricingSnapshot(COP, List.of(
+    private static final PricingSnapshot CO_ALPHA = new PricingSnapshot(COP, GiftTaxPolicy.TAXED, List.of(
             product("BEV-COLA-1500", "colas", "5200", "0.190000"),
             product("BEV-WATER-600", "waters", "1500", "0.190000"),
-            product("SNK-CHIPS-45", "snacks", "1800", "0.050000")), List.of(), List.of());
+            product("SNK-CHIPS-45", "snacks", "1800", "0.050000")), List.of(), List.of(), List.of());
 
     private final PricingEngine engine = new PricingEngine();
 

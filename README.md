@@ -33,7 +33,7 @@ Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on 
 
 | Step | Lever | Why this position |
 |------|-------|-------------------|
-| 1 | Gift eligibility, on paid quantities | A gift is triggered by what is bought and never reduces what is paid for product |
+| 1 | Gift eligibility, on paid quantities and the gross subtotal before discounts | A gift is triggered by what is bought and never reduces what is paid for product |
 | 2 | Combos | A negotiated bundle price consumes its units first, so they never get a tier discount too |
 | 3 | Tier discounts, marginal brackets, on units no combo consumed | The generic volume incentive applies only to what the bundle did not price |
 | 4 | Line net = gross − discounts | Commercial discounts are settled before tax |

@@ -1,5 +1,5 @@
 {
-  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP" },
+  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP", "giftTaxPolicy": "TAXED" },
   "quoteTtl": "PT15M",
   "products": [
     { "sku": "BEV-COLA-1500", "name": "Cola 1.5 l", "family": "colas", "listPrice": "5200", "taxRate": "0.190000" },
@@ -7,5 +7,6 @@
   ],
   "tierRules": [],
   "comboRules": [],
+  "giftRules": [],
   "credit": { "limit": "500000", "consumed": "100000" }
 }

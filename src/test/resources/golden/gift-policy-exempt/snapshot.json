@@ -1,0 +1,27 @@
+{
+  "policy": { "currency": "USD", "scale": 2, "roundingMode": "HALF_UP", "giftTaxPolicy": "EXEMPT" },
+  "products": [
+    { "sku": "BEV-COLA-350", "family": "colas", "listPrice": "0.60", "taxRate": "0.150000" },
+    { "sku": "BEV-COLA-1500", "family": "colas", "listPrice": "1.45", "taxRate": "0.150000" },
+    { "sku": "SNK-PLANTAIN-45", "family": "snacks", "listPrice": "0.55", "taxRate": "0.150000" },
+    { "sku": "BEV-WATER-600", "family": "waters", "listPrice": "0.45", "taxRate": "0.150000" }
+  ],
+  "tierRules": [
+    {
+      "id": "01a13cdb-cc00-7002-8003-000000000001", "scope": "FAMILY", "target": "colas",
+      "brackets": [
+        { "from": 1, "percent": "0.000000" },
+        { "from": 12, "percent": "0.040000" },
+        { "from": 24, "percent": "0.080000" }
+      ]
+    }
+  ],
+  "comboRules": [],
+  "giftRules": [
+    {
+      "id": "01a13cdb-cc00-7002-8005-000000000001",
+      "trigger": { "minGross": "50.00" },
+      "giftSku": "BEV-WATER-600", "giftQty": 2, "repeatable": false
+    }
+  ]
+}

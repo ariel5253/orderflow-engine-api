@@ -1,0 +1,6 @@
+{
+  "paymentMethod": "CASH",
+  "lines": [
+    { "sku": "BEV-COLA-1500", "qty": 35 }
+  ]
+}

@@ -3,9 +3,16 @@ package com.orderflow.engine.pricing.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import com.orderflow.engine.pricing.domain.LineBreakdown.GiftReference;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import com.orderflow.engine.pricing.domain.lever.ComboRule;
 import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
+import com.orderflow.engine.pricing.domain.lever.GiftRule;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.FamilyQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.GrossSubtotal;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.SkuQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.Trigger;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
@@ -19,6 +26,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -80,12 +88,15 @@ class GoldenPricingTest {
     @MethodSource("cases")
     void identities(String name) {
         GoldenCase golden = GoldenCase.load(name);
-        CurrencyPolicy policy = golden.snapshot().policy();
+        PricingSnapshot snapshot = golden.snapshot();
+        CurrencyPolicy policy = snapshot.policy();
 
-        Breakdown breakdown = engine.price(golden.cart(), golden.snapshot());
+        Breakdown breakdown = engine.price(golden.cart(), snapshot);
 
         Totals totals = breakdown.totals();
-        Money sumOfNet = sum(breakdown, LineBreakdown::net, policy);
+        List<LineBreakdown> paidLines = breakdown.lines().stream().filter(line -> !line.isGift()).toList();
+        List<LineBreakdown> giftLines = breakdown.lines().stream().filter(LineBreakdown::isGift).toList();
+        Money sumOfNet = sum(breakdown.lines(), LineBreakdown::net, policy);
         Money sumOfLineDiscounts = breakdown.lines().stream()
                 .map(line -> sumOfDiscounts(line.discounts(), policy))
                 .reduce(Money.zero(policy), Money::plus);
@@ -93,8 +104,8 @@ class GoldenPricingTest {
                 .map(line -> sumOfAllocations(line.comboAllocations(), policy))
                 .reduce(Money.zero(policy), Money::plus);
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(totals.grossSubtotal()).as("grossSubtotal = sum of line gross")
-                    .isEqualTo(sum(breakdown, LineBreakdown::gross, policy));
+            softly.assertThat(totals.grossSubtotal()).as("grossSubtotal = sum of paid line gross")
+                    .isEqualTo(sum(paidLines, LineBreakdown::gross, policy));
             softly.assertThat(sumOfDiscounts(totals.discounts(), policy))
                     .as("sum of discounts[].amount = sum of line tier discounts + sum of line comboAllocations")
                     .isEqualTo(sumOfLineDiscounts.plus(sumOfLineAllocations));
@@ -108,12 +119,18 @@ class GoldenPricingTest {
                         .as("%s = sum of its line allocations", combo.origin())
                         .isEqualTo(combo.amount());
             }
-            softly.assertThat(totals.taxableBase()).as("taxableBase = sum of line net")
-                    .isEqualTo(sumOfNet);
+            softly.assertThat(totals.taxableBase())
+                    .as("taxableBase = sum of paid line net + sum of gift line taxableBase")
+                    .isEqualTo(sum(paidLines, LineBreakdown::net, policy)
+                            .plus(sum(giftLines, LineBreakdown::taxableBase, policy)));
             softly.assertThat(totals.taxes()).as("taxes = sum of line tax")
-                    .isEqualTo(sum(breakdown, LineBreakdown::tax, policy));
+                    .isEqualTo(sum(breakdown.lines(), LineBreakdown::tax, policy));
             softly.assertThat(totals.total()).as("total = sum of line net + taxes")
                     .isEqualTo(sumOfNet.plus(totals.taxes()));
+            softly.assertThat(totals.gifts()).as("gifts = the gift lines with their quantity and origin")
+                    .containsExactlyElementsOf(giftLines.stream()
+                            .map(line -> new Gift(line.gift().orElseThrow().ruleId(), line.sku(), line.qty()))
+                            .toList());
             for (LineBreakdown line : breakdown.lines()) {
                 softly.assertThat(line.gross()).as("%s: gross = unitPrice x qty", line.sku())
                         .isEqualTo(line.unitPrice().times(line.qty()));
@@ -121,11 +138,34 @@ class GoldenPricingTest {
                         .as("%s: net = gross - sum of line discounts - sum of line comboAllocations", line.sku())
                         .isEqualTo(line.gross().minus(sumOfDiscounts(line.discounts(), policy))
                                 .minus(sumOfAllocations(line.comboAllocations(), policy)));
-                softly.assertThat(line.taxableBase()).as("%s: taxableBase = net", line.sku())
-                        .isEqualTo(line.net());
                 BigDecimal exactTax = line.taxableBase().amount().multiply(line.taxRate());
                 softly.assertThat(line.tax()).as("%s: tax = round(taxableBase x taxRate)", line.sku())
                         .isEqualTo(new Money(policy.round(exactTax), policy));
+            }
+            for (LineBreakdown line : paidLines) {
+                softly.assertThat(line.taxableBase()).as("%s: taxableBase = net", line.sku())
+                        .isEqualTo(line.net());
+            }
+            for (LineBreakdown line : giftLines) {
+                Product product = snapshot.product(line.sku()).orElseThrow();
+                Money referenceValue = product.listPrice().times(line.qty());
+                // BR-04: an exempt gift has no taxable base, and a taxed gift is taxed on its value.
+                Money giftBase = snapshot.giftTaxPolicy() == GiftTaxPolicy.TAXED
+                        ? referenceValue
+                        : Money.zero(policy);
+                softly.assertThat(line.unitPrice()).as("%s gift: unitPrice = 0", line.sku())
+                        .isEqualTo(Money.zero(policy));
+                softly.assertThat(line.discounts()).as("%s gift: no discount", line.sku()).isEmpty();
+                softly.assertThat(line.comboAllocations()).as("%s gift: no combo allocation", line.sku())
+                        .isEmpty();
+                softly.assertThat(line.gift().orElseThrow().referenceValue())
+                        .as("%s gift: referenceValue = qty x list price", line.sku())
+                        .isEqualTo(referenceValue);
+                softly.assertThat(line.taxableBase())
+                        .as("%s gift: taxableBase follows the %s policy", line.sku(), snapshot.giftTaxPolicy())
+                        .isEqualTo(giftBase);
+                softly.assertThat(line.taxRate()).as("%s gift: taxRate = the gift SKU's rate", line.sku())
+                        .isEqualTo(product.taxRate());
             }
         });
     }
@@ -152,7 +192,7 @@ class GoldenPricingTest {
                 // Net 62,500 - 2,750 = 59,750, and 59,750 x 19% = 11,352.50, rounded HALF_UP to 11,353.
                 .containsExactly(tuple("BEV-COLA-350", cop(cop, "62500"), List.of(tier),
                         cop(cop, "59750"), cop(cop, "11353")));
-        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "62500"), List.of(tier),
+        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "62500"), List.of(tier), List.of(),
                 cop(cop, "59750"), cop(cop, "11353"), cop(cop, "71103")));
     }
 
@@ -168,9 +208,9 @@ class GoldenPricingTest {
         CurrencyPolicy cop = snapshot.policy();
         UUID combo = UUID.fromString("01a13cdb-cc00-7001-8004-000000000001");
         UUID tierRule = UUID.fromString("01a13cdb-cc00-7001-8003-000000000001");
-        PricingSnapshot withoutCombo = new PricingSnapshot(cop, List.of(
+        PricingSnapshot withoutCombo = new PricingSnapshot(cop, snapshot.giftTaxPolicy(), List.of(
                 snapshot.product("BEV-COLA-350").orElseThrow(),
-                snapshot.product("SNK-CHIPS-45").orElseThrow()), snapshot.tierRules(), List.of());
+                snapshot.product("SNK-CHIPS-45").orElseThrow()), snapshot.tierRules(), List.of(), List.of());
 
         Breakdown breakdown = engine.price(golden.cart(), snapshot);
         Breakdown tiersOnly = engine.price(golden.cart(), withoutCombo);
@@ -216,17 +256,111 @@ class GoldenPricingTest {
                         tuple("SNK-CHIPS-45", cop(cop, "3600"), List.of(new ComboAllocation(combo, cop(cop, "953"))),
                                 cop(cop, "2647"), cop(cop, "2647"), cop(cop, "132")));
         assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "13600"),
-                List.of(new Discount(Discount.Kind.COMBO, combo, cop(cop, "3600"))),
+                List.of(new Discount(Discount.Kind.COMBO, combo, cop(cop, "3600"))), List.of(),
                 cop(cop, "10000"), cop(cop, "1529"), cop(cop, "11529")));
+    }
+
+    /**
+     * GT-03 and AC-06: an order with a gift. The co-alpha rule gives one water 600 for every 10 snacks,
+     * repeatable, and Colombia taxes gifts. The cart is 25 chips and 3 waters at 1,500 with 19% tax.
+     */
+    @Test
+    void gt03() {
+        GoldenCase golden = GoldenCase.load("gt03-gift");
+        PricingSnapshot snapshot = golden.snapshot();
+        CurrencyPolicy cop = snapshot.policy();
+        UUID giftRule = UUID.fromString("01a13cdb-cc00-7001-8005-000000000001");
+        PricingSnapshot withoutGifts = new PricingSnapshot(cop, snapshot.giftTaxPolicy(), List.of(
+                snapshot.product("BEV-WATER-600").orElseThrow(),
+                snapshot.product("SNK-CHIPS-45").orElseThrow()), snapshot.tierRules(), snapshot.comboRules(),
+                List.of());
+
+        Breakdown breakdown = engine.price(golden.cart(), snapshot);
+        Breakdown paidOnly = engine.price(golden.cart(), withoutGifts);
+
+        // 25 paid chips hold 2 whole multiples of 10, so the gift line carries 2 waters. It follows the
+        // paid lines and never merges with the 3 paid waters. It lists at 2 x 1,500 = 3,000, and
+        // Colombia taxes it: 3,000 x 19% = 570.
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::qty, LineBreakdown::gift)
+                .containsExactly(
+                        tuple("BEV-WATER-600", 3L, Optional.empty()),
+                        tuple("SNK-CHIPS-45", 25L, Optional.empty()),
+                        tuple("BEV-WATER-600", 2L, Optional.of(new GiftReference(giftRule, cop(cop, "3000")))));
+        assertThat(breakdown.lines().get(2).gift().orElseThrow().origin())
+                .isEqualTo("GIFT:01a13cdb-cc00-7001-8005-000000000001");
+        assertThat(breakdown.lines().get(2))
+                .extracting(LineBreakdown::unitPrice, LineBreakdown::gross, LineBreakdown::net,
+                        LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(cop(cop, "0"), cop(cop, "0"), cop(cop, "0"), cop(cop, "3000"), cop(cop, "570"));
+        // The paid lines are what they are without the gift rule: 4,500 with 855 of tax, and 45,000
+        // with 2,250, for a total of 49,500 + 3,105 = 52,605.
+        assertThat(breakdown.lines().subList(0, 2)).isEqualTo(paidOnly.lines());
+        assertThat(paidOnly.totals().total()).isEqualTo(cop(cop, "52605"));
+        // With the gift the customer pays the same paid lines, 49,500, and every tax:
+        // 855 + 2,250 + 570 = 3,675.
+        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "49500"), List.of(),
+                List.of(new Gift(giftRule, "BEV-WATER-600", 2)),
+                cop(cop, "52500"), cop(cop, "3675"), cop(cop, "53175")));
+    }
+
+    /**
+     * AC-12: each gift tax policy follows the table of SPEC BR-04. The two cases price the same cart
+     * with the same snapshot but for the country's gift tax policy. The cart is 35 colas 1500 at 1.45
+     * USD with 15% tax: their gross of 50.75 reaches the 50.00 of the gift rule, though their net
+     * after the colas tier discount does not (A-10). The gift is 2 waters 600 at 0.45.
+     */
+    @Test
+    void giftPolicies() {
+        GoldenCase exempt = GoldenCase.load("gift-policy-exempt");
+        GoldenCase taxed = GoldenCase.load("gift-policy-taxed");
+        CurrencyPolicy usd = exempt.snapshot().policy();
+        UUID giftRule = UUID.fromString("01a13cdb-cc00-7002-8005-000000000001");
+        Discount tier = new Discount(Discount.Kind.TIER,
+                UUID.fromString("01a13cdb-cc00-7002-8003-000000000001"), usd(usd, "2.09"));
+        Gift gift = new Gift(giftRule, "BEV-WATER-600", 2);
+
+        Breakdown exemptBreakdown = engine.price(exempt.cart(), exempt.snapshot());
+        Breakdown taxedBreakdown = engine.price(taxed.cart(), taxed.snapshot());
+
+        assertThat(GoldenCase.withoutGiftTaxPolicy("gift-policy-exempt"))
+                .isEqualTo(GoldenCase.withoutGiftTaxPolicy("gift-policy-taxed"));
+        assertThat(exempt.snapshot().giftTaxPolicy()).isEqualTo(GiftTaxPolicy.EXEMPT);
+        assertThat(taxed.snapshot().giftTaxPolicy()).isEqualTo(GiftTaxPolicy.TAXED);
+        // The paid line is the same under both policies. Units 12 to 23 give 12 x 1.45 x 4% = 0.696
+        // and units 24 to 35 give 12 x 1.45 x 8% = 1.392: 2.088, rounded to 2.09. The net is
+        // 50.75 - 2.09 = 48.66, below 50.00, and its tax 48.66 x 15% = 7.299 -> 7.30.
+        assertThat(exemptBreakdown.lines().get(0)).isEqualTo(taxedBreakdown.lines().get(0));
+        assertThat(exemptBreakdown.lines().get(0))
+                .extracting(LineBreakdown::discounts, LineBreakdown::net, LineBreakdown::tax)
+                .containsExactly(List.of(tier), usd(usd, "48.66"), usd(usd, "7.30"));
+        // The gift lists at 2 x 0.45 = 0.90 under both policies. EXEMPT gives it no taxable base and
+        // no tax; TAXED taxes the 0.90: 0.135, rounded to 0.14 on the line.
+        GiftReference reference = new GiftReference(giftRule, usd(usd, "0.90"));
+        assertThat(exemptBreakdown.lines().get(1))
+                .extracting(LineBreakdown::gift, LineBreakdown::net, LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(Optional.of(reference), usd(usd, "0.00"), usd(usd, "0.00"), usd(usd, "0.00"));
+        assertThat(taxedBreakdown.lines().get(1))
+                .extracting(LineBreakdown::gift, LineBreakdown::net, LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(Optional.of(reference), usd(usd, "0.00"), usd(usd, "0.90"), usd(usd, "0.14"));
+        // The taxed gift adds its 0.90 to the taxable base, and only its 0.14 of tax to the total.
+        assertThat(exemptBreakdown.totals()).isEqualTo(new Totals(usd(usd, "50.75"), List.of(tier),
+                List.of(gift), usd(usd, "48.66"), usd(usd, "7.30"), usd(usd, "55.96")));
+        assertThat(taxedBreakdown.totals()).isEqualTo(new Totals(usd(usd, "50.75"), List.of(tier),
+                List.of(gift), usd(usd, "49.56"), usd(usd, "7.44"), usd(usd, "56.10")));
     }
 
     private static Money cop(CurrencyPolicy cop, String amount) {
         return new Money(new BigDecimal(amount), cop);
     }
 
-    private static Money sum(Breakdown breakdown, Function<LineBreakdown, Money> amount,
+    private static Money usd(CurrencyPolicy usd, String amount) {
+        return new Money(new BigDecimal(amount), usd);
+    }
+
+    private static Money sum(List<LineBreakdown> lines, Function<LineBreakdown, Money> amount,
             CurrencyPolicy policy) {
-        return breakdown.lines().stream().map(amount).reduce(Money.zero(policy), Money::plus);
+        return lines.stream().map(amount).reduce(Money.zero(policy), Money::plus);
     }
 
     private static Money sumOfDiscounts(List<Discount> discounts, CurrencyPolicy policy) {
@@ -245,7 +379,9 @@ class GoldenPricingTest {
             ObjectNode node = lines.addObject()
                     .put("sku", line.sku())
                     .put("qty", line.qty())
-                    .put("unitPrice", money(line.unitPrice()))
+                    .put("isGift", line.isGift());
+            line.gift().ifPresent(gift -> node.put("origin", gift.origin()));
+            node.put("unitPrice", money(line.unitPrice()))
                     .put("gross", money(line.gross()));
             putDiscounts(node, line.discounts());
             ArrayNode allocations = node.putArray("comboAllocations");
@@ -254,8 +390,9 @@ class GoldenPricingTest {
                         .put("comboId", allocation.comboId().toString())
                         .put("amount", money(allocation.amount()));
             }
-            node.put("net", money(line.net()))
-                    .put("taxableBase", money(line.taxableBase()))
+            node.put("net", money(line.net()));
+            line.gift().ifPresent(gift -> node.put("referenceValue", money(gift.referenceValue())));
+            node.put("taxableBase", money(line.taxableBase()))
                     .put("taxRate", line.taxRate().toPlainString())
                     .put("tax", money(line.tax()));
         }
@@ -263,6 +400,13 @@ class GoldenPricingTest {
         ObjectNode totalsNode = root.putObject("totals")
                 .put("grossSubtotal", money(totals.grossSubtotal()));
         putDiscounts(totalsNode, totals.discounts());
+        ArrayNode gifts = totalsNode.putArray("gifts");
+        for (Gift gift : totals.gifts()) {
+            gifts.addObject()
+                    .put("sku", gift.sku())
+                    .put("qty", gift.qty())
+                    .put("origin", gift.origin());
+        }
         totalsNode.put("taxableBase", money(totals.taxableBase()))
                 .put("taxes", money(totals.taxes()))
                 .put("total", money(totals.total()));
@@ -302,6 +446,17 @@ class GoldenPricingTest {
             return new GoldenCase(cart(request), snapshot(snapshot), expected);
         }
 
+        /** The case's request and snapshot as written, but for the gift tax policy. */
+        static JsonNode withoutGiftTaxPolicy(String name) {
+            Path folder = goldenRoot().resolve(name);
+            ObjectNode inputs = JSON.createObjectNode();
+            inputs.set("request", JSON.readTree(folder.resolve("request.json")));
+            ObjectNode snapshot = (ObjectNode) JSON.readTree(folder.resolve("snapshot.json"));
+            ((ObjectNode) snapshot.required("policy")).remove("giftTaxPolicy");
+            inputs.set("snapshot", snapshot);
+            return inputs;
+        }
+
         private static Cart cart(JsonNode request) {
             List<CartLine> lines = new ArrayList<>();
             for (JsonNode line : request.required("lines")) {
@@ -326,8 +481,12 @@ class GoldenPricingTest {
                         new Money(new BigDecimal(product.required("listPrice").stringValue()), policy),
                         new BigDecimal(product.required("taxRate").stringValue())));
             }
-            return new PricingSnapshot(policy, products, tierRules(snapshot.required("tierRules")),
-                    comboRules(snapshot.required("comboRules"), policy));
+            return new PricingSnapshot(policy,
+                    GiftTaxPolicy.valueOf(policyNode.required("giftTaxPolicy").stringValue()),
+                    products,
+                    tierRules(snapshot.required("tierRules")),
+                    comboRules(snapshot.required("comboRules"), policy),
+                    giftRules(snapshot.required("giftRules"), policy));
         }
 
         private static List<TierRule> tierRules(JsonNode rules) {
@@ -361,6 +520,32 @@ class GoldenPricingTest {
                         items));
             }
             return comboRules;
+        }
+
+        private static List<GiftRule> giftRules(JsonNode rules, CurrencyPolicy policy) {
+            List<GiftRule> giftRules = new ArrayList<>();
+            for (JsonNode rule : rules) {
+                giftRules.add(new GiftRule(
+                        UUID.fromString(rule.required("id").stringValue()),
+                        trigger(rule.required("trigger"), policy),
+                        rule.required("giftSku").stringValue(),
+                        rule.required("giftQty").longValue(),
+                        rule.required("repeatable").booleanValue()));
+            }
+            return giftRules;
+        }
+
+        // A trigger names a SKU or a family with a minimum quantity, or a minimum gross alone, like a
+        // row of the gift_rules table.
+        private static Trigger trigger(JsonNode trigger, CurrencyPolicy policy) {
+            if (trigger.has("sku")) {
+                return new SkuQuantity(trigger.required("sku").stringValue(), trigger.required("minQty").longValue());
+            }
+            if (trigger.has("family")) {
+                return new FamilyQuantity(
+                        trigger.required("family").stringValue(), trigger.required("minQty").longValue());
+            }
+            return new GrossSubtotal(new Money(new BigDecimal(trigger.required("minGross").stringValue()), policy));
         }
     }
 }
