@@ -2,21 +2,35 @@ package com.orderflow.engine.pricing.domain;
 
 import com.orderflow.engine.pricing.domain.CartRejectedException.Code;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.TierDiscountStep;
+import com.orderflow.engine.pricing.domain.lever.TierDiscountStep.Units;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.Function;
 
 /**
  * Prices a cart against a snapshot. The engine is pure and deterministic: it reads only its two
  * arguments, keeps no state and never reads a clock, so the same cart and snapshot always give the
  * same breakdown. It prices the cart normalized by SPEC BR-00 and runs the steps of BR-01 in order.
- * The only rounding is the tax of each line (RP-4).
+ * Amounts are rounded only per line: each discount component (RP-2) and each tax (RP-4).
  */
 public final class PricingEngine {
 
     public Breakdown price(Cart cart, PricingSnapshot snapshot) {
         CurrencyPolicy policy = snapshot.policy();
-        List<LineBreakdown> lines = CartNormalizer.normalize(cart).lines().stream()
-                .map(line -> priceLine(line, productOf(line, snapshot)))
+        List<PaidLine> paid = CartNormalizer.normalize(cart).lines().stream()
+                .map(line -> new PaidLine(productOf(line, snapshot), line.qty()))
+                .toList();
+        // Step 3 counts only the units it is given: the paid units no combo consumed, which here are
+        // all of them. A gift is never a paid line, so its units never reach a tier threshold (A-04).
+        Map<String, Discount> tierDiscounts = TierDiscountStep.apply(snapshot.tierRules(), paid.stream()
+                .map(line -> new Units(line.product(), line.qty()))
+                .toList());
+        List<LineBreakdown> lines = paid.stream()
+                .map(line -> priceLine(line, Optional.ofNullable(tierDiscounts.get(line.product().sku()))
+                        .stream().toList()))
                 .toList();
         return new Breakdown(policy.currencyCode(), lines, totals(lines, policy));
     }
@@ -26,15 +40,16 @@ public final class PricingEngine {
                 Code.UNKNOWN_SKU, "SKU '" + line.sku() + "' is not sold by this tenant"));
     }
 
-    private static LineBreakdown priceLine(CartLine line, Product product) {
+    private static LineBreakdown priceLine(PaidLine line, List<Discount> discounts) {
+        Product product = line.product();
         Money gross = product.listPrice().times(line.qty());
-        // Steps 4 and 5: the line has no discount component, so its net and its taxable base are
-        // its gross.
-        Money net = gross;
+        // Steps 4 and 5: commercial discounts are settled before tax, so the taxable base is the
+        // net, which is exact because each component is already rounded (RP-3).
+        Money net = discounts.stream().map(Discount::amount).reduce(gross, Money::minus);
         Money taxableBase = net;
         // Step 6: each line's tax is rounded on its own (RP-4), as on an electronic invoice.
         Money tax = taxableBase.timesRounded(product.taxRate());
-        return new LineBreakdown(line.sku(), line.qty(), product.listPrice(), gross, net,
+        return new LineBreakdown(product.sku(), line.qty(), product.listPrice(), gross, discounts, net,
                 taxableBase, product.taxRate(), tax);
     }
 
@@ -43,13 +58,28 @@ public final class PricingEngine {
         Money taxes = sum(lines, LineBreakdown::tax, policy);
         return new Totals(
                 sum(lines, LineBreakdown::gross, policy),
+                discountsByOrigin(lines),
                 sum(lines, LineBreakdown::taxableBase, policy),
                 taxes,
                 sum(lines, LineBreakdown::net, policy).plus(taxes));
     }
 
+    // One entry per origin, so a family rule spread over several lines is one discount. Sorting by
+    // origin keeps the order independent of the line order.
+    private static List<Discount> discountsByOrigin(List<LineBreakdown> lines) {
+        Map<String, Discount> byOrigin = new TreeMap<>();
+        lines.stream().flatMap(line -> line.discounts().stream()).forEach(discount -> byOrigin.merge(
+                discount.origin(), discount, (merged, added) -> new Discount(
+                        merged.kind(), merged.ruleId(), merged.amount().plus(added.amount()))));
+        return List.copyOf(byOrigin.values());
+    }
+
     private static Money sum(List<LineBreakdown> lines, Function<LineBreakdown, Money> amount,
             CurrencyPolicy policy) {
         return lines.stream().map(amount).reduce(Money.zero(policy), Money::plus);
+    }
+
+    /** A line of the normalized cart, with the product its SKU names in the snapshot. */
+    private record PaidLine(Product product, long qty) {
     }
 }

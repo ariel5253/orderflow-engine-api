@@ -107,7 +107,8 @@ class GoldenQuoteTest {
             Map<String, String> descriptions = new HashMap<>();
             for (JsonNode product : snapshot.required("products")) {
                 String sku = product.required("sku").stringValue();
-                products.add(new Product(sku, money(product.required("listPrice"), currency),
+                products.add(new Product(sku, product.required("family").stringValue(),
+                        money(product.required("listPrice"), currency),
                         new BigDecimal(product.required("taxRate").stringValue())));
                 descriptions.put(sku, product.required("name").stringValue());
             }
@@ -117,7 +118,7 @@ class GoldenQuoteTest {
                     PaymentMethod.valueOf(request.required("paymentMethod").stringValue()),
                     new Cart(lines),
                     new TenantPolicy(currency, Duration.parse(snapshot.required("quoteTtl").stringValue())),
-                    new PricingSnapshot(currency, products),
+                    new PricingSnapshot(currency, products, List.of()),
                     descriptions,
                     money(credit.required("limit"), currency),
                     money(credit.required("consumed"), currency),

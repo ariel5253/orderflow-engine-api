@@ -8,6 +8,7 @@ import com.orderflow.engine.quoting.TenantPolicy;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -40,7 +41,7 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
      * refuses a statement with more than 65,535 parameters, which an IN list of one parameter per SKU would reach.
      */
     private static final String PRODUCTS = """
-            SELECT sku, list_price, tax_rate
+            SELECT sku, family_code, list_price, tax_rate
             FROM products
             WHERE tenant_id = :tenantId AND sku = ANY(:skus)
             """;
@@ -78,11 +79,11 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
                 .param("skus", skus.toArray(String[]::new))
                 .query((rs, row) -> {
                     String sku = rs.getString("sku");
-                    return new Product(sku,
+                    return new Product(sku, rs.getString("family_code"),
                             MoneyColumns.read(rs.getBigDecimal("list_price"), currency,
                                     "List price of SKU '" + sku + "' of tenant '" + tenantId + "'"),
                             rs.getBigDecimal("tax_rate"));
                 })
-                .list());
+                .list(), List.of());
     }
 }
