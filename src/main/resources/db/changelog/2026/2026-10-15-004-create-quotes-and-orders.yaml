@@ -1,0 +1,218 @@
+# Sealed quotes and the orders that confirm them. Quotes, their lines and their discount components are insert-only,
+# and an order stores no amount: it points at its quote, so every breakdown figure exists exactly once (SPEC §6).
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-15-004-create-quotes-and-orders.yaml
+
+  # The quote state is derived, never stored: CONFIRMED when an order exists, EXPIRED after expires_at, else OPEN.
+  # The unique (tenant_id, id, customer_id) is the target of the order reference, which pins the order's customer.
+  - changeSet:
+      id: create-quotes
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: quotes
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_quotes}}
+              - column: {name: id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_quotes}}
+              - column: {name: customer_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: currency_code, type: char(3), constraints: {nullable: false}}
+              - column: {name: payment_method, type: text, constraints: {nullable: false}}
+              - column: {name: created_at, type: timestamptz, constraints: {nullable: false}}
+              - column: {name: expires_at, type: timestamptz, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_quotes_tenant
+            baseTableName: quotes
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_quotes_customer
+            baseTableName: quotes
+            baseColumnNames: tenant_id, customer_id
+            referencedTableName: customers
+            referencedColumnNames: tenant_id, id
+        - addForeignKeyConstraint:
+            constraintName: fk_quotes_currency
+            baseTableName: quotes
+            baseColumnNames: currency_code
+            referencedTableName: currencies
+            referencedColumnNames: code
+        - addUniqueConstraint:
+            constraintName: uq_quotes_customer
+            tableName: quotes
+            columnNames: tenant_id, id, customer_id
+        - sql:
+            sql: ALTER TABLE quotes ADD CONSTRAINT ck_quotes_payment_method CHECK (payment_method IN ('CASH', 'CREDIT'))
+        # Serves the purge of unconfirmed quotes, which runs across tenants.
+        - createIndex:
+            indexName: ix_quotes_expires_at
+            tableName: quotes
+            columns:
+              - column: {name: expires_at}
+      rollback:
+        - dropTable: {tableName: quotes}
+
+  # unit_price and tax_rate are captured as they were at quote time. taxable_base and tax are the rounded results of
+  # the country policy at that time, so they are stored rather than recomputed. A gift line has gift_rule_id, and
+  # its unit_price is the list price used as its reference value.
+  - changeSet:
+      id: create-quote-lines
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: quote_lines
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_quote_lines}}
+              - column: {name: quote_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_quote_lines}}
+              - column: {name: line_no, type: integer, constraints: {primaryKey: true, primaryKeyName: pk_quote_lines}}
+              - column: {name: product_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: gift_rule_id, type: uuid}
+              - column: {name: qty, type: integer, constraints: {nullable: false}}
+              - column: {name: unit_price, type: 'numeric(19,4)', constraints: {nullable: false}}
+              - column: {name: tax_rate, type: 'numeric(7,6)', constraints: {nullable: false}}
+              - column: {name: taxable_base, type: 'numeric(19,4)', constraints: {nullable: false}}
+              - column: {name: tax, type: 'numeric(19,4)', constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_lines_tenant
+            baseTableName: quote_lines
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        # An unconfirmed quote is purged with its lines. A confirmed one cannot be purged: orders restrict it.
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_lines_quote
+            baseTableName: quote_lines
+            baseColumnNames: tenant_id, quote_id
+            referencedTableName: quotes
+            referencedColumnNames: tenant_id, id
+            onDelete: CASCADE
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_lines_product
+            baseTableName: quote_lines
+            baseColumnNames: tenant_id, product_id
+            referencedTableName: products
+            referencedColumnNames: tenant_id, id
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_lines_gift_rule
+            baseTableName: quote_lines
+            baseColumnNames: tenant_id, gift_rule_id
+            referencedTableName: gift_rules
+            referencedColumnNames: tenant_id, id
+        - sql:
+            sql: |
+              ALTER TABLE quote_lines
+                ADD CONSTRAINT ck_quote_lines_qty CHECK (qty >= 1),
+                ADD CONSTRAINT ck_quote_lines_tax_rate CHECK (tax_rate BETWEEN 0 AND 1)
+      rollback:
+        - dropTable: {tableName: quote_lines}
+
+  # One row per discount component of a line, already rounded (RP-2), so a component that rounds to zero is not
+  # stored. rule_id is a captured origin label rather than a reference, because rules are deactivated, not deleted.
+  - changeSet:
+      id: create-quote-line-adjustments
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: quote_line_adjustments
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_quote_line_adjustments}}
+              - column: {name: quote_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_quote_line_adjustments}}
+              - column: {name: line_no, type: integer, constraints: {primaryKey: true, primaryKeyName: pk_quote_line_adjustments}}
+              - column: {name: kind, type: text, constraints: {primaryKey: true, primaryKeyName: pk_quote_line_adjustments}}
+              - column: {name: rule_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_quote_line_adjustments}}
+              - column: {name: amount, type: 'numeric(19,4)', constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_line_adjustments_tenant
+            baseTableName: quote_line_adjustments
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_quote_line_adjustments_line
+            baseTableName: quote_line_adjustments
+            baseColumnNames: tenant_id, quote_id, line_no
+            referencedTableName: quote_lines
+            referencedColumnNames: tenant_id, quote_id, line_no
+            onDelete: CASCADE
+        - sql:
+            sql: |
+              ALTER TABLE quote_line_adjustments
+                ADD CONSTRAINT ck_quote_line_adjustments_kind CHECK (kind IN ('TIER', 'COMBO')),
+                ADD CONSTRAINT ck_quote_line_adjustments_amount CHECK (amount > 0)
+      rollback:
+        - dropTable: {tableName: quote_line_adjustments}
+
+  # One order per quote. The reference includes customer_id, so the order's customer is always the quote's, and it
+  # restricts deletes, so a confirmed quote can never be purged.
+  - changeSet:
+      id: create-orders
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: orders
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_orders}}
+              - column: {name: id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_orders}}
+              - column: {name: quote_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: customer_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: order_number, type: text, constraints: {nullable: false}}
+              - column: {name: confirmed_at, type: timestamptz, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_orders_tenant
+            baseTableName: orders
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_orders_quote
+            baseTableName: orders
+            baseColumnNames: tenant_id, quote_id, customer_id
+            referencedTableName: quotes
+            referencedColumnNames: tenant_id, id, customer_id
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            constraintName: uq_orders_quote
+            tableName: orders
+            columnNames: tenant_id, quote_id
+        - addUniqueConstraint:
+            constraintName: uq_orders_number
+            tableName: orders
+            columnNames: tenant_id, order_number
+        # Serves the order history of a customer, newest first.
+        - createIndex:
+            indexName: ix_orders_customer_history
+            tableName: orders
+            columns:
+              - column: {name: tenant_id}
+              - column: {name: customer_id}
+              - column: {name: confirmed_at, descending: true}
+      rollback:
+        - dropTable: {tableName: orders}
+
+  - changeSet:
+      id: add-credit-ledger-order-reference
+      author: orderflow-engine
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_credit_ledger_order
+            baseTableName: credit_ledger
+            baseColumnNames: tenant_id, order_id
+            referencedTableName: orders
+            referencedColumnNames: tenant_id, id
+            onDelete: RESTRICT
+      rollback:
+        - dropForeignKeyConstraint:
+            baseTableName: credit_ledger
+            constraintName: fk_credit_ledger_order
+
+  # Order numbers come from one sequence per country, so no two tenants of a country ever share a number. They are
+  # drawn inside the order transaction: a rollback leaves a gap, which is acceptable, and never a duplicate.
+  - changeSet:
+      id: create-order-number-sequences
+      author: orderflow-engine
+      changes:
+        - createSequence: {sequenceName: order_number_seq_co, startValue: 1, incrementBy: 1}
+        - createSequence: {sequenceName: order_number_seq_ec, startValue: 1, incrementBy: 1}
+      rollback:
+        - dropSequence: {sequenceName: order_number_seq_ec}
+        - dropSequence: {sequenceName: order_number_seq_co}
