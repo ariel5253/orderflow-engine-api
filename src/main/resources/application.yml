@@ -30,6 +30,14 @@ app:
     backoff:
       base: 2s
       max: 5m
+  # Retention housekeeping (SPEC §12). APP_IDEMPOTENCY_RETENTION and APP_HOUSEKEEPING_RETENTION override these values.
+  idempotency:
+    # How long a key replays its first response. Past it, a retry of a confirmed quote still receives
+    # QUOTE_ALREADY_CONFIRMED with the order number, because the order itself is never purged.
+    retention: 24h
+  housekeeping:
+    # How long expired, unconfirmed quotes and SENT outbox events are kept. DEAD events are never purged.
+    retention: 7d
 
 logging:
   pattern:

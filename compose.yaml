@@ -33,6 +33,9 @@ services:
       APP_OUTBOX_MAX_ATTEMPTS: ${API_OUTBOX_MAX_ATTEMPTS:-8}
       APP_OUTBOX_BACKOFF_BASE: ${API_OUTBOX_BACKOFF_BASE:-2s}
       APP_OUTBOX_BACKOFF_MAX: ${API_OUTBOX_BACKOFF_MAX:-5m}
+      # Retention housekeeping: idempotency keys, then expired quotes and SENT outbox events.
+      APP_IDEMPOTENCY_RETENTION: ${API_IDEMPOTENCY_RETENTION:-24h}
+      APP_HOUSEKEEPING_RETENTION: ${API_HOUSEKEEPING_RETENTION:-7d}
     ports:
       - "${API_PORT:-8080}:${API_PORT:-8080}"
 
