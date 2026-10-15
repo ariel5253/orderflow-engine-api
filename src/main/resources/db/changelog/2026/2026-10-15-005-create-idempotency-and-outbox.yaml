@@ -1,0 +1,96 @@
+# Idempotency keys and the transactional outbox, both written in the order transaction (SPEC §7).
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-15-005-create-idempotency-and-outbox.yaml
+
+  # One owner per key: a concurrent duplicate blocks on the uncommitted primary key entry. The key row is inserted
+  # first in the order transaction, so order_id and response_body are filled in at its end. response_body holds
+  # the exact bytes of the first response, which a replay returns.
+  - changeSet:
+      id: create-idempotency-keys
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: idempotency_keys
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_idempotency_keys}}
+              - column: {name: customer_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_idempotency_keys}}
+              - column: {name: idem_key, type: text, constraints: {primaryKey: true, primaryKeyName: pk_idempotency_keys}}
+              - column: {name: request_hash, type: bytea, constraints: {nullable: false}}
+              - column: {name: order_id, type: uuid}
+              - column: {name: response_body, type: bytea}
+              - column: {name: created_at, type: timestamptz, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_idempotency_keys_tenant
+            baseTableName: idempotency_keys
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_idempotency_keys_order
+            baseTableName: idempotency_keys
+            baseColumnNames: tenant_id, order_id
+            referencedTableName: orders
+            referencedColumnNames: tenant_id, id
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            constraintName: uq_idempotency_keys_order
+            tableName: idempotency_keys
+            columnNames: tenant_id, order_id
+        # Serves the retention purge, which runs across tenants.
+        - createIndex:
+            indexName: ix_idempotency_keys_created_at
+            tableName: idempotency_keys
+            columns:
+              - column: {name: created_at}
+      rollback:
+        - dropTable: {tableName: idempotency_keys}
+
+  # One event per destination per order. The id is the event_id that consumers deduplicate on. An event is leased
+  # while it is PENDING and locked_until is in the future.
+  - changeSet:
+      id: create-outbox-events
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: outbox_events
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_outbox_events}}
+              - column: {name: id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_outbox_events}}
+              - column: {name: order_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: destination, type: text, constraints: {nullable: false}}
+              - column: {name: status, type: text, constraints: {nullable: false}}
+              - column: {name: attempts, type: integer, constraints: {nullable: false}}
+              - column: {name: next_attempt_at, type: timestamptz, constraints: {nullable: false}}
+              - column: {name: locked_until, type: timestamptz}
+              - column: {name: last_error, type: text}
+              - column: {name: created_at, type: timestamptz, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_outbox_events_tenant
+            baseTableName: outbox_events
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_outbox_events_order
+            baseTableName: outbox_events
+            baseColumnNames: tenant_id, order_id
+            referencedTableName: orders
+            referencedColumnNames: tenant_id, id
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            constraintName: uq_outbox_events_destination
+            tableName: outbox_events
+            columnNames: tenant_id, order_id, destination
+        - sql:
+            sql: |
+              ALTER TABLE outbox_events
+                ADD CONSTRAINT ck_outbox_events_destination CHECK (destination IN ('PUSH', 'ERP')),
+                ADD CONSTRAINT ck_outbox_events_status CHECK (status IN ('PENDING', 'SENT', 'DEAD'))
+        # The relay claims due PENDING events and the purge removes old SENT ones, both across tenants. Partial
+        # indexes keep each one small: they hold only the rows that job reads.
+        - sql:
+            sql: CREATE INDEX ix_outbox_events_pending ON outbox_events (next_attempt_at) WHERE status = 'PENDING'
+        - sql:
+            sql: CREATE INDEX ix_outbox_events_sent ON outbox_events (created_at) WHERE status = 'SENT'
+      rollback:
+        - dropTable: {tableName: outbox_events}

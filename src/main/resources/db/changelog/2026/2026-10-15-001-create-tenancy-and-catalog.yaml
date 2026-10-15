@@ -1,0 +1,147 @@
+# Reference data (currencies, countries, tenants) and the tenant catalog (customers, families, products).
+# Tenant-scoped tables are keyed by (tenant_id, ...) and every reference between them includes tenant_id, so no
+# row can point at another tenant's data, and the tables can later be partitioned by tenant (DEC-19).
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-15-001-create-tenancy-and-catalog.yaml
+
+  - changeSet:
+      id: create-currencies
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: currencies
+            columns:
+              - column: {name: code, type: char(3), constraints: {primaryKey: true, primaryKeyName: pk_currencies}}
+              - column: {name: scale, type: smallint, constraints: {nullable: false}}
+        - sql:
+            sql: ALTER TABLE currencies ADD CONSTRAINT ck_currencies_scale CHECK (scale BETWEEN 0 AND 4)
+      rollback:
+        - dropTable: {tableName: currencies}
+
+  # Rounding mode and gift tax policy are fiscal policy of the country, not of the currency: two countries that
+  # share a currency may still round differently.
+  - changeSet:
+      id: create-countries
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: countries
+            columns:
+              - column: {name: code, type: char(2), constraints: {primaryKey: true, primaryKeyName: pk_countries}}
+              - column: {name: currency_code, type: char(3), constraints: {nullable: false}}
+              - column: {name: rounding_mode, type: text, constraints: {nullable: false}}
+              - column: {name: gift_tax_policy, type: text, constraints: {nullable: false}}
+              - column: {name: quote_ttl, type: interval, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_countries_currency
+            baseTableName: countries
+            baseColumnNames: currency_code
+            referencedTableName: currencies
+            referencedColumnNames: code
+        # The rounding modes of java.math.RoundingMode except UNNECESSARY, which fails on any amount that needs
+        # rounding instead of rounding it.
+        - sql:
+            sql: |
+              ALTER TABLE countries
+                ADD CONSTRAINT ck_countries_rounding_mode
+                  CHECK (rounding_mode IN ('UP', 'DOWN', 'CEILING', 'FLOOR', 'HALF_UP', 'HALF_DOWN', 'HALF_EVEN')),
+                ADD CONSTRAINT ck_countries_gift_tax_policy CHECK (gift_tax_policy IN ('EXEMPT', 'TAXED'))
+      rollback:
+        - dropTable: {tableName: countries}
+
+  - changeSet:
+      id: create-tenants
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: tenants
+            columns:
+              - column: {name: id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_tenants}}
+              - column: {name: country_code, type: char(2), constraints: {nullable: false}}
+              - column: {name: brand, type: text, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_tenants_country
+            baseTableName: tenants
+            baseColumnNames: country_code
+            referencedTableName: countries
+            referencedColumnNames: code
+        - addUniqueConstraint:
+            constraintName: uq_tenants_country_brand
+            tableName: tenants
+            columnNames: country_code, brand
+      rollback:
+        - dropTable: {tableName: tenants}
+
+  - changeSet:
+      id: create-customers
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: customers
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_customers}}
+              - column: {name: id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_customers}}
+              - column: {name: name, type: text, constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_customers_tenant
+            baseTableName: customers
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+      rollback:
+        - dropTable: {tableName: customers}
+
+  - changeSet:
+      id: create-families
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: families
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_families}}
+              - column: {name: code, type: text, constraints: {primaryKey: true, primaryKeyName: pk_families}}
+        - addForeignKeyConstraint:
+            constraintName: fk_families_tenant
+            baseTableName: families
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+      rollback:
+        - dropTable: {tableName: families}
+
+  # Each SKU carries its own tax rate, and prices are tax-exclusive. No CHECK guards the price scale: it would need
+  # the scale of the tenant's currency, which only a trigger could read (data model DM-01).
+  - changeSet:
+      id: create-products
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: products
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_products}}
+              - column: {name: id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_products}}
+              - column: {name: sku, type: text, constraints: {nullable: false}}
+              - column: {name: name, type: text, constraints: {nullable: false}}
+              - column: {name: family_code, type: text, constraints: {nullable: false}}
+              - column: {name: tax_rate, type: 'numeric(7,6)', constraints: {nullable: false}}
+              - column: {name: list_price, type: 'numeric(19,4)', constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_products_tenant
+            baseTableName: products
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_products_family
+            baseTableName: products
+            baseColumnNames: tenant_id, family_code
+            referencedTableName: families
+            referencedColumnNames: tenant_id, code
+        - addUniqueConstraint:
+            constraintName: uq_products_sku
+            tableName: products
+            columnNames: tenant_id, sku
+        - sql:
+            sql: ALTER TABLE products ADD CONSTRAINT ck_products_tax_rate CHECK (tax_rate BETWEEN 0 AND 1)
+      rollback:
+        - dropTable: {tableName: products}
