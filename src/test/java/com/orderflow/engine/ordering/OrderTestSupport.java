@@ -14,9 +14,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Requests, database reads and cleanup shared by the order confirmation tests. The tests commit for real, because a
- * failed confirmation must leave nothing behind and a retry must see what the first request committed, so every test
- * removes its orders and quotes afterwards. Header names, paths and expected values are typed from the contract,
+ * Requests, database reads and cleanup shared by the order tests. The tests commit for real, because a failed
+ * confirmation must leave nothing behind and a retry or a read must see what the first request committed, so every
+ * test removes its orders and quotes afterwards. Header names, paths and expected values are typed from the contract,
  * never read from the code under test.
  */
 public final class OrderTestSupport {
@@ -91,6 +91,47 @@ public final class OrderTestSupport {
 
     public MvcTestResult confirm(String tenant, UUID customer, String key, UUID quoteId) {
         return confirm(tenant, customer, key, confirmBody(quoteId));
+    }
+
+    /** Reads an order through E-04, as a client would. A null tenant or customer leaves its header out. */
+    public MvcTestResult readOrder(String tenant, String customer, String orderId) {
+        MockMvcTester.MockMvcRequestBuilder request = mvc.get().uri(ORDERS + "/{orderId}", orderId);
+        headers(request, tenant, customer);
+        return request.exchange();
+    }
+
+    public MvcTestResult readOrder(String tenant, UUID customer, String orderId) {
+        return readOrder(tenant, customer.toString(), orderId);
+    }
+
+    /**
+     * Reads the history of {@code customerId} through E-05, as the caller {@code customer}. A null tenant or customer
+     * leaves its header out, and a null {@code customerId} or {@code size} leaves its query parameter out.
+     */
+    public MvcTestResult history(String tenant, String customer, String customerId, String size) {
+        MockMvcTester.MockMvcRequestBuilder request = mvc.get().uri(ORDERS);
+        headers(request, tenant, customer);
+        if (customerId != null) {
+            request.queryParam("customerId", customerId);
+        }
+        if (size != null) {
+            request.queryParam("size", size);
+        }
+        return request.exchange();
+    }
+
+    /** The caller's own history through E-05, with the default size. */
+    public MvcTestResult history(String tenant, UUID customer) {
+        return history(tenant, customer.toString(), customer.toString(), null);
+    }
+
+    private static void headers(MockMvcTester.MockMvcRequestBuilder request, String tenant, String customer) {
+        if (tenant != null) {
+            request.header(TENANT_HEADER, tenant);
+        }
+        if (customer != null) {
+            request.header(CUSTOMER_HEADER, customer);
+        }
     }
 
     public static String confirmBody(UUID quoteId) {
@@ -172,8 +213,16 @@ public final class OrderTestSupport {
         return JSON.readTree(text);
     }
 
-    /** A problem+json body with the status, code and type of api-contract section 3, and localized text. */
+    /** The problem+json body of a request whose path is {@link #ORDERS}. */
     public static void assertProblem(MvcTestResult result, HttpStatus status, String code) {
+        assertProblem(result, status, code, ORDERS);
+    }
+
+    /**
+     * A problem+json body with the status, code and type of api-contract section 3, localized text, and the request
+     * path {@code instance}.
+     */
+    public static void assertProblem(MvcTestResult result, HttpStatus status, String code, String instance) {
         assertThat(result).hasStatus(status).hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
         JsonNode problem = json(result);
         assertThat(problem.required("status").intValue()).isEqualTo(status.value());
@@ -181,7 +230,7 @@ public final class OrderTestSupport {
         assertThat(problem.required("type").stringValue())
                 .isEqualTo("https://orderflow-engine.example/problems/"
                         + code.toLowerCase(Locale.ROOT).replace('_', '-'));
-        assertThat(problem.required("instance").stringValue()).isEqualTo(ORDERS);
+        assertThat(problem.required("instance").stringValue()).isEqualTo(instance);
         assertThat(problem.required("title").stringValue()).isNotBlank();
         assertThat(problem.required("detail").stringValue()).isNotBlank();
         assertThat(problem.required("correlationId").stringValue()).isNotBlank();

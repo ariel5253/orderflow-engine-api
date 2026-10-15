@@ -102,7 +102,7 @@ public record QuoteResponse(
     }
 
     /** Money keeps the currency scale, so "2500" in COP and "0.60" in USD, written without an exponent. */
-    private static String money(Money money) {
+    static String money(Money money) {
         return money.amount().toPlainString();
     }
 }

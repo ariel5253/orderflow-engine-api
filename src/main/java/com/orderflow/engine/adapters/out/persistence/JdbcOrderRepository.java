@@ -2,9 +2,14 @@ package com.orderflow.engine.adapters.out.persistence;
 
 import com.orderflow.engine.ordering.OrderRepository;
 import com.orderflow.engine.ordering.PlacedOrder;
+import com.orderflow.engine.ordering.StoredOrder;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +49,23 @@ public class JdbcOrderRepository implements OrderRepository {
     private static final String INSERT_ORDER = """
             INSERT INTO orders (tenant_id, id, quote_id, customer_id, order_number, confirmed_at)
             VALUES (:tenantId, :orderId, :quoteId, :customerId, :orderNumber, :confirmedAt)
+            """;
+
+    /** Filtered by tenant and customer, so an order of anyone else is never found (BD-01). */
+    private static final String FIND_ORDER = """
+            SELECT id, order_number, quote_id, confirmed_at FROM orders
+            WHERE tenant_id = :tenantId AND id = :orderId AND customer_id = :customerId
+            """;
+
+    /**
+     * Served by the history index (tenant_id, customer_id, confirmed_at DESC). The id breaks a tie between orders of
+     * the same instant, so the order of the rows never depends on the plan.
+     */
+    private static final String HISTORY = """
+            SELECT id, order_number, quote_id, confirmed_at FROM orders
+            WHERE tenant_id = :tenantId AND customer_id = :customerId
+            ORDER BY confirmed_at DESC, id DESC
+            LIMIT :limit
             """;
 
     private final JdbcClient jdbc;
@@ -100,5 +122,30 @@ public class JdbcOrderRepository implements OrderRepository {
                 .param("confirmedAt", confirmedAt.atOffset(ZoneOffset.UTC))
                 .update();
         return new PlacedOrder(orderId, orderNumber);
+    }
+
+    @Override
+    public Optional<StoredOrder> find(String tenantId, UUID customerId, UUID orderId) {
+        return jdbc.sql(FIND_ORDER)
+                .param("tenantId", tenantId)
+                .param("orderId", orderId)
+                .param("customerId", customerId)
+                .query((rs, row) -> stored(rs))
+                .optional();
+    }
+
+    @Override
+    public List<StoredOrder> history(String tenantId, UUID customerId, int limit) {
+        return jdbc.sql(HISTORY)
+                .param("tenantId", tenantId)
+                .param("customerId", customerId)
+                .param("limit", limit)
+                .query((rs, row) -> stored(rs))
+                .list();
+    }
+
+    private static StoredOrder stored(ResultSet rs) throws SQLException {
+        return new StoredOrder(rs.getObject("id", UUID.class), rs.getString("order_number"),
+                rs.getObject("quote_id", UUID.class), rs.getObject("confirmed_at", OffsetDateTime.class).toInstant());
     }
 }

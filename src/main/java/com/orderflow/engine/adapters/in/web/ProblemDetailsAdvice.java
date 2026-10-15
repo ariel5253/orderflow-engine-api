@@ -58,8 +58,9 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * A confirmation rejected by the ordering rules. Its code is named after the public code, so it maps by name. A
-     * quote that is confirmed already also names its order, so a client that lost the first answer can find it (BD-03).
+     * An order operation rejected by the ordering rules (E-03 to E-05). Its code is named after the public code, so it
+     * maps by name. A quote that is confirmed already also names its order, so a client that lost the first answer can
+     * find it (BD-03).
      */
     @ExceptionHandler(OrderRejectedException.class)
     ResponseEntity<Object> handleOrderRejected(OrderRejectedException ex, WebRequest request) {

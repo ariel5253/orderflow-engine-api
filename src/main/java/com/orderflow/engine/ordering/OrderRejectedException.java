@@ -5,16 +5,18 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A confirmation that the ordering rules reject (api-contract E-03). Each code is named after the public error code of
- * the API, so the web adapter maps it without a translation table. The message is for logs only: the user text is
- * resolved from the code. A rejection rolls the whole confirmation back, so nothing of it is stored, not even its
- * idempotency key (BD-02).
+ * An order operation that the ordering rules reject (api-contract E-03 to E-05). Each code is named after the public
+ * error code of the API, so the web adapter maps it without a translation table. The message is for logs only: the
+ * user text is resolved from the code. A rejected confirmation is rolled back whole, so nothing of it is stored, not
+ * even its idempotency key (BD-02).
  */
 public final class OrderRejectedException extends RuntimeException {
 
-    /** The rejections of a confirmation that the request format itself does not cause. */
+    /** The rejections of the order operations that the request format itself does not cause. */
     public enum Code {
         TENANT_NOT_FOUND,
+        CUSTOMER_NOT_FOUND,
+        ORDER_NOT_FOUND,
         QUOTE_NOT_FOUND,
         QUOTE_EXPIRED,
         QUOTE_ALREADY_CONFIRMED,
