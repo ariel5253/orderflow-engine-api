@@ -2,6 +2,7 @@ package com.orderflow.engine.ordering;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -63,14 +64,19 @@ public final class OrderTestSupport {
 
     /** Quotes {@link #CO_CART} for a co-alpha customer through the quote endpoint, as a client would. */
     public UUID quoteCoCart(UUID customer, String paymentMethod) {
-        MvcTestResult created = mvc.post().uri(QUOTES)
-                .header(TENANT_HEADER, "co-alpha")
-                .header(CUSTOMER_HEADER, customer.toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(CO_CART.formatted(paymentMethod))
-                .exchange();
+        MvcTestResult created = quote("co-alpha", customer, CO_CART.formatted(paymentMethod));
         assertThat(created).hasStatus(HttpStatus.CREATED);
         return UUID.fromString(json(created).required("quoteId").stringValue());
+    }
+
+    /** Sends a quote request through the quote endpoint, as a client would. */
+    public MvcTestResult quote(String tenant, UUID customer, String body) {
+        return mvc.post().uri(QUOTES)
+                .header(TENANT_HEADER, tenant)
+                .header(CUSTOMER_HEADER, customer.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .exchange();
     }
 
     public MvcTestResult confirm(String tenant, UUID customer, String key, String body) {
@@ -117,6 +123,13 @@ public final class OrderTestSupport {
                 .param("customerId", customer)
                 .query(String.class)
                 .single();
+    }
+
+    /** The amount of every credit movement, as text at the stored scale, e.g. {@code 22344.0000}. */
+    public List<String> ledgerAmounts() {
+        return jdbc.sql("SELECT CAST(amount AS text) FROM credit_ledger ORDER BY amount")
+                .query(String.class)
+                .list();
     }
 
     public void setConsumed(String tenant, UUID customer, long consumed) {
