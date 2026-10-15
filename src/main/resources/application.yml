@@ -18,6 +18,18 @@ app:
   i18n:
     # Language of the user text when Accept-Language is missing or names no supported language.
     default-locale: es
+  # Outbox relay (plan §2). The APP_OUTBOX_* environment variables override these values.
+  outbox:
+    # How long the relay waits between two polls for due events.
+    poll-interval: 1s
+    # How long a claimed event stays leased (locked_until). Past it, another poll may claim and send it again.
+    lease: 30s
+    # Delivery attempts before an event becomes DEAD.
+    max-attempts: 8
+    # The wait before a retry is drawn between zero and base doubled per failed attempt, never above max.
+    backoff:
+      base: 2s
+      max: 5m
 
 logging:
   pattern:
