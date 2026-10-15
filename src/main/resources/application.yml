@@ -1,0 +1,9 @@
+# The database connection is read only from the environment, through Spring's relaxed binding of
+# SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD. No default is set here.
+# SERVER_PORT overrides the HTTP port, 8080 by default.
+spring:
+  application:
+    name: orderflow-engine-api
+  # The schema lives with its only owner, this service, and is applied at startup (DEC-20).
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
