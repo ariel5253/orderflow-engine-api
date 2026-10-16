@@ -1,6 +1,5 @@
 package com.orderflow.engine.quoting;
 
-import com.orderflow.engine.pricing.domain.CurrencyPolicy;
 import com.orderflow.engine.pricing.domain.PricingSnapshot;
 import java.util.Optional;
 import java.util.Set;
@@ -19,9 +18,11 @@ public interface SnapshotProvider {
     boolean customerExists(String tenantId, UUID customerId);
 
     /**
-     * The tenant's products that carry one of these SKU codes, priced in the tenant's currency. A SKU the tenant does
-     * not sell is left out, so the engine rejects it. A stored price with more decimals than the currency scale is
-     * rejected when it is read (data model DM-01).
+     * What the engine prices a cart with, under the policy of the tenant's country: the tenant's products that carry
+     * one of these SKU codes, and its active tier, combo and gift rules, with the product each active gift rule gives.
+     * A SKU the tenant does not sell is left out, so the engine rejects it. An inactive rule is never read, so a
+     * deactivated lever reaches no new quote. A stored price with more decimals than the currency scale is rejected
+     * when it is read (data model DM-01).
      */
-    PricingSnapshot pricingSnapshot(String tenantId, CurrencyPolicy currency, Set<String> skus);
+    PricingSnapshot pricingSnapshot(String tenantId, TenantPolicy policy, Set<String> skus);
 }

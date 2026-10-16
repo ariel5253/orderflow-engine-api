@@ -4,15 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.orderflow.engine.adapters.in.web.QuoteResponse;
 import com.orderflow.engine.pricing.domain.Cart;
-import com.orderflow.engine.pricing.domain.CartLine;
 import com.orderflow.engine.pricing.domain.CurrencyPolicy;
+import com.orderflow.engine.pricing.domain.GoldenFixtures;
 import com.orderflow.engine.pricing.domain.Money;
 import com.orderflow.engine.pricing.domain.PricingEngine;
 import com.orderflow.engine.pricing.domain.PricingSnapshot;
-import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
-import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
@@ -20,9 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,9 +33,9 @@ import tools.jackson.databind.json.JsonMapper;
  * Golden tests of the quote use case (SPEC section 11). Credit is evaluated outside the pure engine, so these cases run
  * the whole use case over ports backed by the case's fixtures, with a fixed clock and a fixed quote id.
  * {@code request.json} is the quote request; {@code snapshot.json} holds the country policy, the quote TTL, the
- * catalog and the customer's credit account; {@code expected-quote.json} is the quote body the API returns. The same
- * folder also holds {@code expected.json}, the engine breakdown that {@code GoldenPricingTest} pins together with the
- * BR-05 identities.
+ * catalog, the active levers and the customer's credit account, read like the snapshot of an engine golden case;
+ * {@code expected-quote.json} is the quote body the API returns. The same folder also holds {@code expected.json}, the
+ * engine breakdown that {@code GoldenPricingTest} pins together with the BR-05 identities.
  */
 @Tag("golden")
 class GoldenQuoteTest {
@@ -94,33 +89,20 @@ class GoldenQuoteTest {
             JsonNode request = JSON.readTree(folder.resolve("request.json"));
             JsonNode snapshot = JSON.readTree(folder.resolve("snapshot.json"));
 
-            List<CartLine> lines = new ArrayList<>();
-            for (JsonNode line : request.required("lines")) {
-                lines.add(new CartLine(line.required("sku").stringValue(), line.required("qty").longValue()));
-            }
-
-            JsonNode policyNode = snapshot.required("policy");
-            CurrencyPolicy currency = new CurrencyPolicy(
-                    policyNode.required("currency").stringValue(),
-                    policyNode.required("scale").intValue(),
-                    RoundingMode.valueOf(policyNode.required("roundingMode").stringValue()));
-            List<Product> products = new ArrayList<>();
+            PricingSnapshot pricing = GoldenFixtures.snapshot(snapshot);
             Map<String, String> descriptions = new HashMap<>();
             for (JsonNode product : snapshot.required("products")) {
-                String sku = product.required("sku").stringValue();
-                products.add(new Product(sku, product.required("family").stringValue(),
-                        money(product.required("listPrice"), currency),
-                        new BigDecimal(product.required("taxRate").stringValue())));
-                descriptions.put(sku, product.required("name").stringValue());
+                descriptions.put(product.required("sku").stringValue(), product.required("name").stringValue());
             }
             JsonNode credit = snapshot.required("credit");
 
+            CurrencyPolicy currency = pricing.policy();
             return new GoldenQuote(
                     PaymentMethod.valueOf(request.required("paymentMethod").stringValue()),
-                    new Cart(lines),
-                    new TenantPolicy(currency, Duration.parse(snapshot.required("quoteTtl").stringValue())),
-                    new PricingSnapshot(currency, GiftTaxPolicy.valueOf(policyNode.required("giftTaxPolicy").stringValue()),
-                            products, List.of(), List.of(), List.of()),
+                    GoldenFixtures.cart(request),
+                    new TenantPolicy(currency, pricing.giftTaxPolicy(),
+                            Duration.parse(snapshot.required("quoteTtl").stringValue())),
+                    pricing,
                     descriptions,
                     money(credit.required("limit"), currency),
                     money(credit.required("consumed"), currency),
@@ -136,7 +118,7 @@ class GoldenQuoteTest {
                     new PricingEngine(), Clock.fixed(NOW, ZoneOffset.UTC));
         }
 
-        /** The fixture's policy, customer and catalog, whatever tenant and customer are asked for. */
+        /** The fixture's policy, customer, catalog and levers, whatever tenant and customer are asked for. */
         private final class FixtureSnapshots implements SnapshotProvider {
 
             @Override
@@ -150,7 +132,7 @@ class GoldenQuoteTest {
             }
 
             @Override
-            public PricingSnapshot pricingSnapshot(String tenantId, CurrencyPolicy currency, Set<String> skus) {
+            public PricingSnapshot pricingSnapshot(String tenantId, TenantPolicy tenantPolicy, Set<String> skus) {
                 return pricing;
             }
         }
