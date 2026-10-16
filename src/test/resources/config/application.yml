@@ -1,0 +1,5 @@
+# Test runs only, on top of the main application.yml. Tests drive the outbox relay themselves, and a background poll
+# would race with them, so it waits one hour and never runs during a test run.
+app:
+  outbox:
+    poll-interval: 1h

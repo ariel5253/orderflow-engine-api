@@ -1,1 +1,22 @@
-databaseChangeLog: []
+# Every changelog is included explicitly, in the order it is applied (DEC-20). Each one sets a logicalFilePath,
+# so the files can move without being applied again.
+databaseChangeLog:
+  - logicalFilePath: db/changelog/db.changelog-master.yaml
+  - include:
+      file: 2026/2026-10-15-001-create-tenancy-and-catalog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-15-002-create-levers.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-15-003-create-credit.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-15-004-create-quotes-and-orders.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-15-005-create-idempotency-and-outbox.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-15-006-seed-co-and-ec.yaml
+      relativeToChangelogFile: true

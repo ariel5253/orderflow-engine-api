@@ -1,0 +1,24 @@
+{
+  "currency": "COP",
+  "lines": [
+    {
+      "sku": "BEV-COLA-350", "qty": 25, "isGift": false,
+      "unitPrice": "2500", "gross": "62500",
+      "discounts": [
+        { "origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "2750" }
+      ],
+      "comboAllocations": [],
+      "net": "59750", "taxableBase": "59750", "taxRate": "0.190000", "tax": "11353"
+    }
+  ],
+  "totals": {
+    "grossSubtotal": "62500",
+    "discounts": [
+      { "origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "2750" }
+    ],
+    "gifts": [],
+    "taxableBase": "59750",
+    "taxes": "11353",
+    "total": "71103"
+  }
+}

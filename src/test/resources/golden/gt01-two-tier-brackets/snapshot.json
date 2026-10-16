@@ -1,0 +1,21 @@
+{
+  "policy": { "currency": "COP", "scale": 0, "roundingMode": "HALF_UP", "giftTaxPolicy": "TAXED" },
+  "products": [
+    { "sku": "BEV-COLA-350", "family": "colas", "listPrice": "2500", "taxRate": "0.190000" },
+    { "sku": "BEV-COLA-1500", "family": "colas", "listPrice": "5200", "taxRate": "0.190000" },
+    { "sku": "SNK-CHIPS-45", "family": "snacks", "listPrice": "1800", "taxRate": "0.050000" },
+    { "sku": "BEV-WATER-600", "family": "waters", "listPrice": "1500", "taxRate": "0.190000" }
+  ],
+  "tierRules": [
+    {
+      "id": "01a13cdb-cc00-7001-8003-000000000001", "scope": "SKU", "target": "BEV-COLA-350",
+      "brackets": [
+        { "from": 1, "percent": "0.000000" },
+        { "from": 10, "percent": "0.050000" },
+        { "from": 20, "percent": "0.100000" }
+      ]
+    }
+  ],
+  "comboRules": [],
+  "giftRules": []
+}

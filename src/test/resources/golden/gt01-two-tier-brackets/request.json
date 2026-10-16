@@ -1,0 +1,6 @@
+{
+  "paymentMethod": "CREDIT",
+  "lines": [
+    { "sku": "BEV-COLA-350", "qty": 25 }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "currency": "COP",
+  "lines": [
+    {
+      "sku": "BEV-COLA-1500", "qty": 3, "isGift": false,
+      "unitPrice": "5200", "gross": "15600", "discounts": [],
+      "comboAllocations": [], "net": "15600", "taxableBase": "15600", "taxRate": "0.190000", "tax": "2964"
+    },
+    {
+      "sku": "BEV-WATER-600", "qty": 4, "isGift": false,
+      "unitPrice": "1500", "gross": "6000", "discounts": [],
+      "comboAllocations": [], "net": "6000", "taxableBase": "6000", "taxRate": "0.190000", "tax": "1140"
+    },
+    {
+      "sku": "SNK-CHIPS-45", "qty": 3, "isGift": false,
+      "unitPrice": "1800", "gross": "5400", "discounts": [],
+      "comboAllocations": [], "net": "5400", "taxableBase": "5400", "taxRate": "0.050000", "tax": "270"
+    }
+  ],
+  "totals": {
+    "grossSubtotal": "27000",
+    "discounts": [],
+    "gifts": [],
+    "taxableBase": "27000",
+    "taxes": "4374",
+    "total": "31374"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "paymentMethod": "CASH",
+  "lines": [
+    { "sku": "SNK-PLANTAIN-45", "qty": 1 },
+    { "sku": "BEV-WATER-600", "qty": 3 },
+    { "sku": "BEV-COLA-1500", "qty": 2 },
+    { "sku": "SNK-PLANTAIN-45", "qty": 1 }
+  ]
+}

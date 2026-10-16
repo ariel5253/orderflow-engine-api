@@ -1,0 +1,58 @@
+# Credit: one account per customer and an append-only ledger with one movement per order (BR-06).
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-15-003-create-credit.yaml
+
+  # consumed is the materialized sum of the ledger, updated in the order transaction. Its CHECK is the invariant:
+  # the limit can never be exceeded, even if application code is wrong.
+  - changeSet:
+      id: create-credit-accounts
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: credit_accounts
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_credit_accounts}}
+              - column: {name: customer_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_credit_accounts}}
+              - column: {name: credit_limit, type: 'numeric(19,4)', constraints: {nullable: false}}
+              - column: {name: consumed, type: 'numeric(19,4)', constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_credit_accounts_tenant
+            baseTableName: credit_accounts
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_credit_accounts_customer
+            baseTableName: credit_accounts
+            baseColumnNames: tenant_id, customer_id
+            referencedTableName: customers
+            referencedColumnNames: tenant_id, id
+        - sql:
+            sql: |
+              ALTER TABLE credit_accounts
+                ADD CONSTRAINT ck_credit_accounts_consumed CHECK (consumed >= 0 AND consumed <= credit_limit)
+      rollback:
+        - dropTable: {tableName: credit_accounts}
+
+  # The primary key lets each order consume credit at most once. The reference to the order is added with the
+  # orders table (2026-10-15-004).
+  - changeSet:
+      id: create-credit-ledger
+      author: orderflow-engine
+      changes:
+        - createTable:
+            tableName: credit_ledger
+            columns:
+              - column: {name: tenant_id, type: text, constraints: {primaryKey: true, primaryKeyName: pk_credit_ledger}}
+              - column: {name: order_id, type: uuid, constraints: {primaryKey: true, primaryKeyName: pk_credit_ledger}}
+              - column: {name: amount, type: 'numeric(19,4)', constraints: {nullable: false}}
+        - addForeignKeyConstraint:
+            constraintName: fk_credit_ledger_tenant
+            baseTableName: credit_ledger
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+        - sql:
+            sql: ALTER TABLE credit_ledger ADD CONSTRAINT ck_credit_ledger_amount CHECK (amount > 0)
+      rollback:
+        - dropTable: {tableName: credit_ledger}

@@ -1,0 +1,168 @@
+# Seed data for two countries whose currencies have different scales, which is enough to prove that no currency,
+# scale, rate or rule is hard-coded (SPEC §5). Catalog and lever administration is out of scope, so this changelog
+# is how data enters. Every amount fits the scale of its tenant's currency: PriceScaleValidationIT checks it,
+# because no database CHECK can (data model DM-01). Ids are fixed UUIDv7 values, so the seeds are stable.
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-15-006-seed-co-and-ec.yaml
+
+  # COP has no minor unit in practice, so its scale is 0. The scale comes from here, never from java.util.Currency,
+  # which reports COP with scale 2.
+  - changeSet:
+      id: seed-currencies
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO currencies (code, scale) VALUES
+                ('COP', 0),
+                ('USD', 2)
+      rollback:
+        - sql:
+            sql: DELETE FROM currencies WHERE code IN ('COP', 'USD')
+
+  # The two countries use different gift tax policies, so both are exercised. The quote TTL is 15 minutes (A-05).
+  - changeSet:
+      id: seed-countries
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO countries (code, currency_code, rounding_mode, gift_tax_policy, quote_ttl) VALUES
+                ('CO', 'COP', 'HALF_UP', 'TAXED',  '15 minutes'),
+                ('EC', 'USD', 'HALF_UP', 'EXEMPT', '15 minutes')
+      rollback:
+        - sql:
+            sql: DELETE FROM countries WHERE code IN ('CO', 'EC')
+
+  - changeSet:
+      id: seed-tenants
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO tenants (id, country_code, brand) VALUES
+                ('co-alpha', 'CO', 'alpha'),
+                ('ec-alpha', 'EC', 'alpha')
+      rollback:
+        - sql:
+            sql: DELETE FROM tenants WHERE id IN ('co-alpha', 'ec-alpha')
+
+  # co-alpha carries the worked examples of SPEC BR-02 (tier brackets on BEV-COLA-350) and BR-03 (the cola and chips
+  # combo), and the credit limit of the contract example (E-01). North Corner Shop buys on credit, South Corner Shop
+  # pays cash only.
+  - changeSet:
+      id: seed-co-alpha
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO families (tenant_id, code) VALUES
+                ('co-alpha', 'colas'),
+                ('co-alpha', 'snacks'),
+                ('co-alpha', 'waters');
+
+              INSERT INTO products (tenant_id, id, sku, name, family_code, tax_rate, list_price) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8002-000000000001', 'BEV-COLA-350',  'Cola 350 ml',  'colas',  0.190000, 2500),
+                ('co-alpha', '01a13cdb-cc00-7001-8002-000000000002', 'BEV-COLA-1500', 'Cola 1.5 l',   'colas',  0.190000, 5200),
+                ('co-alpha', '01a13cdb-cc00-7001-8002-000000000003', 'SNK-CHIPS-45',  'Chips 45 g',   'snacks', 0.050000, 1800),
+                ('co-alpha', '01a13cdb-cc00-7001-8002-000000000004', 'BEV-WATER-600', 'Water 600 ml', 'waters', 0.190000, 1500);
+
+              INSERT INTO tier_rules (tenant_id, id, product_id, family_code, active) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8003-000000000001', '01a13cdb-cc00-7001-8002-000000000001', NULL, true);
+
+              INSERT INTO tier_brackets (tenant_id, tier_rule_id, from_qty, percent) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8003-000000000001',  1, 0.000000),
+                ('co-alpha', '01a13cdb-cc00-7001-8003-000000000001', 10, 0.050000),
+                ('co-alpha', '01a13cdb-cc00-7001-8003-000000000001', 20, 0.100000);
+
+              INSERT INTO combo_rules (tenant_id, id, combo_price, active) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8004-000000000001', 5000, true);
+
+              INSERT INTO combo_items (tenant_id, combo_rule_id, product_id, min_qty) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8004-000000000001', '01a13cdb-cc00-7001-8002-000000000001', 2),
+                ('co-alpha', '01a13cdb-cc00-7001-8004-000000000001', '01a13cdb-cc00-7001-8002-000000000003', 1);
+
+              INSERT INTO gift_rules
+                (tenant_id, id, trigger_product_id, trigger_family_code, min_qty, min_gross,
+                 gift_product_id, gift_qty, repeatable, active) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8005-000000000001', NULL, 'snacks', 10, NULL,
+                 '01a13cdb-cc00-7001-8002-000000000004', 1, true, true);
+
+              INSERT INTO customers (tenant_id, id, name) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000001', 'North Corner Shop'),
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000002', 'South Corner Shop');
+
+              INSERT INTO credit_accounts (tenant_id, customer_id, credit_limit, consumed) VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000001', 500000, 0)
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM credit_accounts WHERE tenant_id = 'co-alpha';
+              DELETE FROM customers WHERE tenant_id = 'co-alpha';
+              DELETE FROM gift_rules WHERE tenant_id = 'co-alpha';
+              DELETE FROM combo_items WHERE tenant_id = 'co-alpha';
+              DELETE FROM combo_rules WHERE tenant_id = 'co-alpha';
+              DELETE FROM tier_brackets WHERE tenant_id = 'co-alpha';
+              DELETE FROM tier_rules WHERE tenant_id = 'co-alpha';
+              DELETE FROM products WHERE tenant_id = 'co-alpha';
+              DELETE FROM families WHERE tenant_id = 'co-alpha'
+
+  # ec-alpha prices in USD with two decimals. Its catalog differs from co-alpha's (plantain chips instead of chips),
+  # and it uses the lever shapes co-alpha does not: a family tier rule and a gift on the gross subtotal. Quito Corner
+  # Shop buys on credit, Guayaquil Corner Shop pays cash only.
+  - changeSet:
+      id: seed-ec-alpha
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO families (tenant_id, code) VALUES
+                ('ec-alpha', 'colas'),
+                ('ec-alpha', 'snacks'),
+                ('ec-alpha', 'waters');
+
+              INSERT INTO products (tenant_id, id, sku, name, family_code, tax_rate, list_price) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8002-000000000001', 'BEV-COLA-350',    'Cola 350 ml',         'colas',  0.150000, 0.60),
+                ('ec-alpha', '01a13cdb-cc00-7002-8002-000000000002', 'BEV-COLA-1500',   'Cola 1.5 l',          'colas',  0.150000, 1.45),
+                ('ec-alpha', '01a13cdb-cc00-7002-8002-000000000003', 'SNK-PLANTAIN-45', 'Plantain chips 45 g', 'snacks', 0.150000, 0.55),
+                ('ec-alpha', '01a13cdb-cc00-7002-8002-000000000004', 'BEV-WATER-600',   'Water 600 ml',        'waters', 0.150000, 0.45);
+
+              INSERT INTO tier_rules (tenant_id, id, product_id, family_code, active) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8003-000000000001', NULL, 'colas', true);
+
+              INSERT INTO tier_brackets (tenant_id, tier_rule_id, from_qty, percent) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8003-000000000001',  1, 0.000000),
+                ('ec-alpha', '01a13cdb-cc00-7002-8003-000000000001', 12, 0.040000),
+                ('ec-alpha', '01a13cdb-cc00-7002-8003-000000000001', 24, 0.080000);
+
+              INSERT INTO combo_rules (tenant_id, id, combo_price, active) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8004-000000000001', 3.99, true);
+
+              INSERT INTO combo_items (tenant_id, combo_rule_id, product_id, min_qty) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8004-000000000001', '01a13cdb-cc00-7002-8002-000000000001', 6),
+                ('ec-alpha', '01a13cdb-cc00-7002-8004-000000000001', '01a13cdb-cc00-7002-8002-000000000003', 2);
+
+              INSERT INTO gift_rules
+                (tenant_id, id, trigger_product_id, trigger_family_code, min_qty, min_gross,
+                 gift_product_id, gift_qty, repeatable, active) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8005-000000000001', NULL, NULL, NULL, 50.00,
+                 '01a13cdb-cc00-7002-8002-000000000004', 2, false, true);
+
+              INSERT INTO customers (tenant_id, id, name) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000001', 'Quito Corner Shop'),
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000002', 'Guayaquil Corner Shop');
+
+              INSERT INTO credit_accounts (tenant_id, customer_id, credit_limit, consumed) VALUES
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000001', 1500.00, 0)
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM credit_accounts WHERE tenant_id = 'ec-alpha';
+              DELETE FROM customers WHERE tenant_id = 'ec-alpha';
+              DELETE FROM gift_rules WHERE tenant_id = 'ec-alpha';
+              DELETE FROM combo_items WHERE tenant_id = 'ec-alpha';
+              DELETE FROM combo_rules WHERE tenant_id = 'ec-alpha';
+              DELETE FROM tier_brackets WHERE tenant_id = 'ec-alpha';
+              DELETE FROM tier_rules WHERE tenant_id = 'ec-alpha';
+              DELETE FROM products WHERE tenant_id = 'ec-alpha';
+              DELETE FROM families WHERE tenant_id = 'ec-alpha'
