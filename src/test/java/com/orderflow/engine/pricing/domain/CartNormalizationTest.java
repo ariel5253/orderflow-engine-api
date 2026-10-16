@@ -22,14 +22,14 @@ class CartNormalizationTest {
     private static final CurrencyPolicy COP = new CurrencyPolicy("COP", 0, RoundingMode.HALF_UP);
 
     private static final PricingSnapshot CO_ALPHA = new PricingSnapshot(COP, List.of(
-            product("BEV-COLA-1500", "5200", "0.190000"),
-            product("BEV-WATER-600", "1500", "0.190000"),
-            product("SNK-CHIPS-45", "1800", "0.050000")));
+            product("BEV-COLA-1500", "colas", "5200", "0.190000"),
+            product("BEV-WATER-600", "waters", "1500", "0.190000"),
+            product("SNK-CHIPS-45", "snacks", "1800", "0.050000")), List.of());
 
     private final PricingEngine engine = new PricingEngine();
 
-    private static Product product(String sku, String listPrice, String taxRate) {
-        return new Product(sku, new Money(new BigDecimal(listPrice), COP), new BigDecimal(taxRate));
+    private static Product product(String sku, String family, String listPrice, String taxRate) {
+        return new Product(sku, family, new Money(new BigDecimal(listPrice), COP), new BigDecimal(taxRate));
     }
 
     private static Cart cart(CartLine... lines) {

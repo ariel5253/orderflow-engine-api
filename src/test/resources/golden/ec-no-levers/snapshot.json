@@ -1,9 +1,10 @@
 {
   "policy": { "currency": "USD", "scale": 2, "roundingMode": "HALF_UP" },
   "products": [
-    { "sku": "BEV-COLA-350", "listPrice": "0.60", "taxRate": "0.150000" },
-    { "sku": "BEV-COLA-1500", "listPrice": "1.45", "taxRate": "0.150000" },
-    { "sku": "SNK-PLANTAIN-45", "listPrice": "0.55", "taxRate": "0.150000" },
-    { "sku": "BEV-WATER-600", "listPrice": "0.45", "taxRate": "0.150000" }
-  ]
+    { "sku": "BEV-COLA-350", "family": "colas", "listPrice": "0.60", "taxRate": "0.150000" },
+    { "sku": "BEV-COLA-1500", "family": "colas", "listPrice": "1.45", "taxRate": "0.150000" },
+    { "sku": "SNK-PLANTAIN-45", "family": "snacks", "listPrice": "0.55", "taxRate": "0.150000" },
+    { "sku": "BEV-WATER-600", "family": "waters", "listPrice": "0.45", "taxRate": "0.150000" }
+  ],
+  "tierRules": []
 }

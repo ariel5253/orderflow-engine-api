@@ -1,8 +1,12 @@
 package com.orderflow.engine.pricing.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.TierRule;
+import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
+import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -13,10 +17,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.DeserializationFeature;
@@ -29,9 +35,10 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * Pins the engine's full breakdown for fixed inputs (SPEC section 11). Each folder under
  * {@code golden/} is one case: {@code request.json} is the body of a quote request, whose lines the
- * engine prices; {@code snapshot.json} is the policy and catalog the engine reads; and
- * {@code expected.json} is the breakdown, with money as strings at the currency scale. A new folder
- * is a new case: every case is compared in full and checked against the BR-05 identities (AC-02).
+ * engine prices; {@code snapshot.json} is the policy, catalog and active levers the engine reads;
+ * and {@code expected.json} is the breakdown, with money as strings at the currency scale. A new
+ * folder is a new case: every case is compared in full and checked against the BR-05 identities
+ * (AC-02). The assignment's golden tests also assert their key numbers by name.
  */
 @Tag("golden")
 class GoldenPricingTest {
@@ -77,9 +84,15 @@ class GoldenPricingTest {
 
         Totals totals = breakdown.totals();
         Money sumOfNet = sum(breakdown, LineBreakdown::net, policy);
+        Money sumOfLineDiscounts = breakdown.lines().stream()
+                .map(line -> sumOfDiscounts(line.discounts(), policy))
+                .reduce(Money.zero(policy), Money::plus);
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(totals.grossSubtotal()).as("grossSubtotal = sum of line gross")
                     .isEqualTo(sum(breakdown, LineBreakdown::gross, policy));
+            softly.assertThat(sumOfDiscounts(totals.discounts(), policy))
+                    .as("sum of discounts[].amount = sum of line tier discounts")
+                    .isEqualTo(sumOfLineDiscounts);
             softly.assertThat(totals.taxableBase()).as("taxableBase = sum of line net")
                     .isEqualTo(sumOfNet);
             softly.assertThat(totals.taxes()).as("taxes = sum of line tax")
@@ -89,9 +102,8 @@ class GoldenPricingTest {
             for (LineBreakdown line : breakdown.lines()) {
                 softly.assertThat(line.gross()).as("%s: gross = unitPrice x qty", line.sku())
                         .isEqualTo(line.unitPrice().times(line.qty()));
-                // net = gross - discount components, and no step of this pipeline emits a component.
-                softly.assertThat(line.net()).as("%s: net = gross", line.sku())
-                        .isEqualTo(line.gross());
+                softly.assertThat(line.net()).as("%s: net = gross - sum of line discounts", line.sku())
+                        .isEqualTo(line.gross().minus(sumOfDiscounts(line.discounts(), policy)));
                 softly.assertThat(line.taxableBase()).as("%s: taxableBase = net", line.sku())
                         .isEqualTo(line.net());
                 BigDecimal exactTax = line.taxableBase().amount().multiply(line.taxRate());
@@ -101,9 +113,43 @@ class GoldenPricingTest {
         });
     }
 
+    /**
+     * GT-01 and AC-04, with the worked numbers of SPEC BR-02: 25 units of BEV-COLA-350 at 2,500
+     * COP, brackets 1-9 at 0%, 10-19 at 5% and 20+ at 10%.
+     */
+    @Test
+    void gt01() {
+        GoldenCase golden = GoldenCase.load("gt01-two-tier-brackets");
+        CurrencyPolicy cop = golden.snapshot().policy();
+        // Marginal brackets: 10 units x 2,500 x 5% = 1,250 and 6 units x 2,500 x 10% = 1,500.
+        Money discount = cop(cop, "1250").plus(cop(cop, "1500"));
+        Discount tier = new Discount(Discount.Kind.TIER,
+                UUID.fromString("01a13cdb-cc00-7001-8003-000000000001"), discount);
+
+        Breakdown breakdown = engine.price(golden.cart(), golden.snapshot());
+
+        assertThat(discount).isEqualTo(cop(cop, "2750"));
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::gross, LineBreakdown::discounts,
+                        LineBreakdown::net, LineBreakdown::tax)
+                // Net 62,500 - 2,750 = 59,750, and 59,750 x 19% = 11,352.50, rounded HALF_UP to 11,353.
+                .containsExactly(tuple("BEV-COLA-350", cop(cop, "62500"), List.of(tier),
+                        cop(cop, "59750"), cop(cop, "11353")));
+        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "62500"), List.of(tier),
+                cop(cop, "59750"), cop(cop, "11353"), cop(cop, "71103")));
+    }
+
+    private static Money cop(CurrencyPolicy cop, String amount) {
+        return new Money(new BigDecimal(amount), cop);
+    }
+
     private static Money sum(Breakdown breakdown, Function<LineBreakdown, Money> amount,
             CurrencyPolicy policy) {
         return breakdown.lines().stream().map(amount).reduce(Money.zero(policy), Money::plus);
+    }
+
+    private static Money sumOfDiscounts(List<Discount> discounts, CurrencyPolicy policy) {
+        return discounts.stream().map(Discount::amount).reduce(Money.zero(policy), Money::plus);
     }
 
     private static ObjectNode toJson(Breakdown breakdown) {
@@ -111,23 +157,34 @@ class GoldenPricingTest {
         root.put("currency", breakdown.currency());
         ArrayNode lines = root.putArray("lines");
         for (LineBreakdown line : breakdown.lines()) {
-            lines.addObject()
+            ObjectNode node = lines.addObject()
                     .put("sku", line.sku())
                     .put("qty", line.qty())
                     .put("unitPrice", money(line.unitPrice()))
-                    .put("gross", money(line.gross()))
-                    .put("net", money(line.net()))
+                    .put("gross", money(line.gross()));
+            putDiscounts(node, line.discounts());
+            node.put("net", money(line.net()))
                     .put("taxableBase", money(line.taxableBase()))
                     .put("taxRate", line.taxRate().toPlainString())
                     .put("tax", money(line.tax()));
         }
         Totals totals = breakdown.totals();
-        root.putObject("totals")
-                .put("grossSubtotal", money(totals.grossSubtotal()))
-                .put("taxableBase", money(totals.taxableBase()))
+        ObjectNode totalsNode = root.putObject("totals")
+                .put("grossSubtotal", money(totals.grossSubtotal()));
+        putDiscounts(totalsNode, totals.discounts());
+        totalsNode.put("taxableBase", money(totals.taxableBase()))
                 .put("taxes", money(totals.taxes()))
                 .put("total", money(totals.total()));
         return root;
+    }
+
+    private static void putDiscounts(ObjectNode node, List<Discount> discounts) {
+        ArrayNode array = node.putArray("discounts");
+        for (Discount discount : discounts) {
+            array.addObject()
+                    .put("origin", discount.origin())
+                    .put("amount", money(discount.amount()));
+        }
     }
 
     private static String money(Money money) {
@@ -174,10 +231,29 @@ class GoldenPricingTest {
             for (JsonNode product : snapshot.required("products")) {
                 products.add(new Product(
                         product.required("sku").stringValue(),
+                        product.required("family").stringValue(),
                         new Money(new BigDecimal(product.required("listPrice").stringValue()), policy),
                         new BigDecimal(product.required("taxRate").stringValue())));
             }
-            return new PricingSnapshot(policy, products);
+            return new PricingSnapshot(policy, products, tierRules(snapshot.required("tierRules")));
+        }
+
+        private static List<TierRule> tierRules(JsonNode rules) {
+            List<TierRule> tierRules = new ArrayList<>();
+            for (JsonNode rule : rules) {
+                List<Bracket> brackets = new ArrayList<>();
+                for (JsonNode bracket : rule.required("brackets")) {
+                    brackets.add(new Bracket(
+                            bracket.required("from").longValue(),
+                            new BigDecimal(bracket.required("percent").stringValue())));
+                }
+                tierRules.add(new TierRule(
+                        UUID.fromString(rule.required("id").stringValue()),
+                        Scope.valueOf(rule.required("scope").stringValue()),
+                        rule.required("target").stringValue(),
+                        brackets));
+            }
+            return tierRules;
         }
     }
 }
