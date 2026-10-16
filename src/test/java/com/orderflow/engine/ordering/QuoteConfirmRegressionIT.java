@@ -13,11 +13,7 @@ import static com.orderflow.engine.quoting.QuoteTestData.CO_CASH_CUSTOMER;
 import static com.orderflow.engine.quoting.QuoteTestData.CO_CREDIT_CUSTOMER;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.orderflow.engine.quoting.QuoteRepository;
 import com.orderflow.engine.quoting.QuoteTestData;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -116,8 +112,6 @@ class QuoteConfirmRegressionIT {
             {"grossSubtotal": "94000", "discounts": [], "gifts": [],
              "taxableBase": "94000", "taxes": "15200", "total": "109200"}""";
 
-    private static final Duration QUOTE_TTL = Duration.ofMinutes(15);
-
     private static final String[] LEVER_TABLES = {"tier_rules", "combo_rules", "gift_rules"};
 
     @Autowired
@@ -125,9 +119,6 @@ class QuoteConfirmRegressionIT {
 
     @Autowired
     private JdbcClient jdbc;
-
-    @Autowired
-    private QuoteRepository quotes;
 
     private OrderTestSupport orders;
 
@@ -176,12 +167,16 @@ class QuoteConfirmRegressionIT {
     /**
      * The levers that priced a quote may be gone by the time it is confirmed: the sealed combo allocations, tier
      * discount and gift line are confirmed as they were quoted, because the order renders the sealed rows and never
-     * looks up a rule. The quote is sealed through the quote port, as the quote use case seals one.
+     * looks up a rule. The quote is created through E-01 with the seeded levers, so the sealed rows are exactly what
+     * the quote endpoint produced.
      */
     @Test
     void gt06ASealedQuoteKeepsItsComboTierAndGiftAfterTheLeversAreDeactivated() {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        UUID quoteId = quotes.insert(QuoteTestData.withEveryComponent(CO_CASH_CUSTOMER, now, now.plus(QUOTE_TTL)));
+        MvcTestResult quoted = orders.quote(CO, CO_CASH_CUSTOMER, EVERY_COMPONENT_CART);
+        assertThat(quoted).hasStatus(HttpStatus.CREATED);
+        assertThat(json(quoted).required("lines")).as("quoted lines").isEqualTo(json(EVERY_COMPONENT_LINES));
+        assertThat(json(quoted).required("totals")).as("quoted totals").isEqualTo(json(EVERY_COMPONENT_TOTALS));
+        UUID quoteId = UUID.fromString(json(quoted).required("quoteId").stringValue());
 
         changeTheCatalog();
         MvcTestResult confirmed = orders.confirm(CO, CO_CASH_CUSTOMER, newKey(), quoteId);

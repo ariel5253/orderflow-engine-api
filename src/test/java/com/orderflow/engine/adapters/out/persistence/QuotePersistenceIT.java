@@ -1,9 +1,11 @@
 package com.orderflow.engine.adapters.out.persistence;
 
 import static com.orderflow.engine.quoting.QuoteTestData.CO;
-import static com.orderflow.engine.quoting.QuoteTestData.COP;
 import static com.orderflow.engine.quoting.QuoteTestData.CO_CASH_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.CO_COMBO_RULE;
 import static com.orderflow.engine.quoting.QuoteTestData.CO_CREDIT_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.CO_GIFT_RULE;
+import static com.orderflow.engine.quoting.QuoteTestData.CO_TIER_RULE;
 import static com.orderflow.engine.quoting.QuoteTestData.EC;
 import static com.orderflow.engine.quoting.QuoteTestData.EC_CREDIT_CUSTOMER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,7 +15,19 @@ import static org.assertj.core.api.Assertions.tuple;
 import com.orderflow.engine.pricing.domain.Cart;
 import com.orderflow.engine.pricing.domain.CartLine;
 import com.orderflow.engine.pricing.domain.CurrencyPolicy;
+import com.orderflow.engine.pricing.domain.Money;
 import com.orderflow.engine.pricing.domain.PricingSnapshot;
+import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.ComboRule;
+import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
+import com.orderflow.engine.pricing.domain.lever.GiftRule;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.FamilyQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.GrossSubtotal;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.SkuQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
+import com.orderflow.engine.pricing.domain.lever.TierRule;
+import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
+import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
 import com.orderflow.engine.quoting.CreateQuoteUseCase;
 import com.orderflow.engine.quoting.GetQuoteUseCase;
 import com.orderflow.engine.quoting.PaymentMethod;
@@ -23,6 +37,9 @@ import com.orderflow.engine.quoting.QuoteView;
 import com.orderflow.engine.quoting.SealedQuote;
 import com.orderflow.engine.quoting.SnapshotProvider;
 import com.orderflow.engine.quoting.StoredQuote;
+import com.orderflow.engine.quoting.TenantPolicy;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -31,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,8 +64,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * AC-20 and data model DM-01, DM-02: a quote is sealed. It is stored with its lines, their discount components and its
  * expiry, the prices it was quoted with stay with it, it is never updated, and a stored price with more decimals than
- * its currency allows is rejected when it is loaded. Every test runs in a transaction that is rolled back, except the
- * one that proves the quote is written in a transaction of its own.
+ * its currency allows is rejected when it is loaded. The snapshot a quote is priced with holds the tenant's active
+ * levers and nothing inactive. Every test runs in a transaction that is rolled back, except the one that proves the
+ * quote is written in a transaction of its own.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
@@ -59,6 +78,9 @@ class QuotePersistenceIT {
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17");
 
     private static final CurrencyPolicy USD = new CurrencyPolicy("USD", 2, RoundingMode.HALF_UP);
+    private static final UUID EC_TIER_RULE = UUID.fromString("01a13cdb-cc00-7002-8003-000000000001");
+    private static final UUID EC_COMBO_RULE = UUID.fromString("01a13cdb-cc00-7002-8004-000000000001");
+    private static final UUID EC_GIFT_RULE = UUID.fromString("01a13cdb-cc00-7002-8005-000000000001");
     private static final Instant CREATED_AT = Instant.parse("2100-01-01T00:00:00Z");
     private static final Instant EXPIRES_AT = Instant.parse("2100-01-01T00:15:00Z");
 
@@ -189,7 +211,7 @@ class QuotePersistenceIT {
 
     @Test
     void aStoredPriceIsReadAtTheScaleOfItsCurrency() {
-        PricingSnapshot snapshot = snapshots.pricingSnapshot(EC, USD, Set.of("BEV-COLA-350", "BEV-COLA-1500"));
+        PricingSnapshot snapshot = snapshotOf(EC, "BEV-COLA-350", "BEV-COLA-1500");
 
         assertThat(snapshot.product("BEV-COLA-350").orElseThrow().listPrice().amount().toPlainString())
                 .isEqualTo("0.60");
@@ -204,13 +226,150 @@ class QuotePersistenceIT {
                 .update();
 
         assertThatExceptionOfType(IllegalStateException.class)
-                .isThrownBy(() -> snapshots.pricingSnapshot(CO, COP, Set.of("BEV-COLA-350")))
+                .isThrownBy(() -> snapshotOf(CO, "BEV-COLA-350"))
                 .withMessage("List price of SKU 'BEV-COLA-350' of tenant 'co-alpha' 2500.5000 has more decimals"
                         + " than the COP scale 0");
         assertThatExceptionOfType(IllegalStateException.class)
                 .isThrownBy(() -> createQuote.create(CO, CO_CASH_CUSTOMER, PaymentMethod.CASH,
                         cart(new CartLine("BEV-COLA-350", 1))));
         assertThat(jdbc.sql("SELECT count(*) FROM quotes").query(Long.class).single()).isZero();
+    }
+
+    /**
+     * The snapshot holds the tenant's active levers in the shape the engine reads, one of each seeded shape: a SKU
+     * tier rule, a combo and a family gift in co-alpha, and a family tier rule, a combo and a gross subtotal gift in
+     * ec-alpha, with each country's gift tax policy. The product of each active gift rule is read with the cart's,
+     * because the engine prices a gift line at its list price; a combo item or a tier target outside the cart is not.
+     */
+    @Test
+    void theSnapshotHoldsTheActiveLeversOfTheTenant() {
+        PricingSnapshot co = snapshotOf(CO, "SNK-CHIPS-45");
+        PricingSnapshot ec = snapshotOf(EC, "BEV-COLA-350");
+
+        assertThat(co.giftTaxPolicy()).isEqualTo(GiftTaxPolicy.TAXED);
+        assertThat(co.tierRules()).containsExactly(new TierRule(CO_TIER_RULE, Scope.SKU, "BEV-COLA-350", List.of(
+                new Bracket(1, new BigDecimal("0.000000")),
+                new Bracket(10, new BigDecimal("0.050000")),
+                new Bracket(20, new BigDecimal("0.100000")))));
+        assertThat(co.comboRules()).containsExactly(new ComboRule(CO_COMBO_RULE, QuoteTestData.cop("5000"),
+                List.of(new Item("BEV-COLA-350", 2), new Item("SNK-CHIPS-45", 1))));
+        assertThat(co.giftRules()).containsExactly(new GiftRule(CO_GIFT_RULE, new FamilyQuantity("snacks", 10),
+                "BEV-WATER-600", 1, true));
+        assertThat(co.product("BEV-WATER-600")).contains(new Product("BEV-WATER-600", "waters",
+                QuoteTestData.cop("1500"), new BigDecimal("0.190000")));
+        assertThat(co.product("SNK-CHIPS-45")).isPresent();
+        assertThat(co.product("BEV-COLA-350")).as("a combo item and tier target outside the cart").isEmpty();
+
+        assertThat(ec.giftTaxPolicy()).isEqualTo(GiftTaxPolicy.EXEMPT);
+        assertThat(ec.tierRules()).containsExactly(new TierRule(EC_TIER_RULE, Scope.FAMILY, "colas", List.of(
+                new Bracket(1, new BigDecimal("0.000000")),
+                new Bracket(12, new BigDecimal("0.040000")),
+                new Bracket(24, new BigDecimal("0.080000")))));
+        assertThat(ec.comboRules()).containsExactly(new ComboRule(EC_COMBO_RULE, usd("3.99"),
+                List.of(new Item("BEV-COLA-350", 6), new Item("SNK-PLANTAIN-45", 2))));
+        assertThat(ec.giftRules()).containsExactly(new GiftRule(EC_GIFT_RULE, new GrossSubtotal(usd("50.00")),
+                "BEV-WATER-600", 2, false));
+        assertThat(ec.product("BEV-WATER-600")).isPresent();
+    }
+
+    /** No seeded gift rule is triggered by one SKU, so this test adds one: it is read with the SKU it counts. */
+    @Test
+    void aGiftRuleTriggeredByOneSkuIsReadWithThatSku() {
+        UUID rule = UUID.fromString("01a13cdb-cc00-7001-8005-000000000099");
+        jdbc.sql("""
+                        INSERT INTO gift_rules
+                            (tenant_id, id, trigger_product_id, trigger_family_code, min_qty, min_gross,
+                             gift_product_id, gift_qty, repeatable, active)
+                        SELECT :tenantId, :ruleId, t.id, NULL, 6, NULL, g.id, 1, false, true
+                        FROM products t, products g
+                        WHERE t.tenant_id = :tenantId AND t.sku = 'BEV-COLA-1500'
+                          AND g.tenant_id = :tenantId AND g.sku = 'SNK-CHIPS-45'""")
+                .param("tenantId", CO)
+                .param("ruleId", rule)
+                .update();
+
+        PricingSnapshot co = snapshotOf(CO, "BEV-COLA-1500");
+
+        assertThat(co.giftRules()).containsExactly(
+                new GiftRule(CO_GIFT_RULE, new FamilyQuantity("snacks", 10), "BEV-WATER-600", 1, true),
+                new GiftRule(rule, new SkuQuantity("BEV-COLA-1500", 6), "SNK-CHIPS-45", 1, false));
+        assertThat(co.product("SNK-CHIPS-45")).as("the product the added rule gives").isPresent();
+    }
+
+    /** A deactivated lever is never read, and neither is the product of a deactivated gift rule. */
+    @Test
+    void anInactiveLeverIsNeverRead() {
+        for (String table : List.of("tier_rules", "combo_rules", "gift_rules")) {
+            jdbc.sql("UPDATE " + table + " SET active = false WHERE tenant_id = :tenantId")
+                    .param("tenantId", CO)
+                    .update();
+        }
+
+        PricingSnapshot co = snapshotOf(CO, "BEV-COLA-350", "SNK-CHIPS-45");
+
+        assertThat(co.tierRules()).isEmpty();
+        assertThat(co.comboRules()).isEmpty();
+        assertThat(co.giftRules()).isEmpty();
+        assertThat(co.product("BEV-WATER-600")).as("the product of an inactive gift rule").isEmpty();
+        assertThat(snapshotOf(EC, "BEV-COLA-350").tierRules()).as("the levers of another tenant").hasSize(1);
+    }
+
+    /**
+     * Each statement of a READ COMMITTED transaction sees the rows committed when it starts, so a gift rule can be
+     * activated between two statements of the same snapshot. This test activates the seeded gift rule of co-alpha
+     * right after the first statement of the snapshot: the snapshot still holds the product the rule gives, because
+     * that product is read in the same statement as the rule.
+     */
+    @Test
+    void aGiftRuleActivatedWhileTheSnapshotIsReadComesWithItsProduct() {
+        setGiftRulesActive(CO, false);
+        TenantPolicy policy = snapshots.tenantPolicy(CO).orElseThrow();
+        AtomicInteger statements = new AtomicInteger();
+        JdbcClient activatingAfterTheFirstStatement = (JdbcClient) Proxy.newProxyInstance(
+                JdbcClient.class.getClassLoader(), new Class<?>[] {JdbcClient.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("sql") && statements.getAndIncrement() == 1) {
+                        setGiftRulesActive(CO, true);
+                    }
+                    return method.invoke(jdbc, args);
+                });
+
+        PricingSnapshot co = new JdbcSnapshotProvider(activatingAfterTheFirstStatement)
+                .pricingSnapshot(CO, policy, Set.of("SNK-CHIPS-45"));
+
+        assertThat(statements).as("statements of the snapshot").hasValueGreaterThan(1);
+        assertThat(co.giftRules()).extracting(GiftRule::id).containsExactly(CO_GIFT_RULE);
+        assertThat(co.product("BEV-WATER-600")).as("the product the activated rule gives").isPresent();
+    }
+
+    /** A cart may hold the SKU a gift rule gives: the snapshot then holds that product once, as the tenant sells it. */
+    @Test
+    void aGiftProductTheCartAlsoHoldsIsReadOnce() {
+        PricingSnapshot co = snapshotOf(CO, "BEV-WATER-600", "SNK-CHIPS-45");
+
+        assertThat(co.giftRules()).extracting(GiftRule::giftSku).containsExactly("BEV-WATER-600");
+        assertThat(co.product("BEV-WATER-600")).contains(new Product("BEV-WATER-600", "waters",
+                QuoteTestData.cop("1500"), new BigDecimal("0.190000")));
+        assertThat(co.product("SNK-CHIPS-45")).isPresent();
+    }
+
+    /** DM-01 holds for the amounts of a lever too: a combo price and a gross subtotal condition are money. */
+    @Test
+    void aLeverAmountWithMoreDecimalsThanItsCurrencyIsRejectedWhenLoaded() {
+        jdbc.sql("UPDATE combo_rules SET combo_price = 5000.5 WHERE tenant_id = :tenantId")
+                .param("tenantId", CO)
+                .update();
+        jdbc.sql("UPDATE gift_rules SET min_gross = 50.005 WHERE tenant_id = :tenantId")
+                .param("tenantId", EC)
+                .update();
+
+        assertThatExceptionOfType(IllegalStateException.class)
+                .isThrownBy(() -> snapshotOf(CO, "SNK-CHIPS-45"))
+                .withMessage("Combo price of combo rule " + CO_COMBO_RULE + " of tenant 'co-alpha' 5000.5000 has more"
+                        + " decimals than the COP scale 0");
+        assertThatExceptionOfType(IllegalStateException.class)
+                .isThrownBy(() -> snapshotOf(EC, "BEV-COLA-350"))
+                .withMessage("Minimum gross subtotal of gift rule " + EC_GIFT_RULE + " of tenant 'ec-alpha' 50.0050"
+                        + " has more decimals than the USD scale 2");
     }
 
     @Test
@@ -267,6 +426,22 @@ class QuotePersistenceIT {
             jdbc.sql("DROP TRIGGER reject_second_line ON quote_lines").update();
             jdbc.sql("DROP FUNCTION reject_second_line()").update();
         }
+    }
+
+    /** The snapshot of a cart of these SKUs, under the policy of the tenant's country. */
+    private PricingSnapshot snapshotOf(String tenantId, String... skus) {
+        return snapshots.pricingSnapshot(tenantId, snapshots.tenantPolicy(tenantId).orElseThrow(), Set.of(skus));
+    }
+
+    private static Money usd(String amount) {
+        return new Money(new BigDecimal(amount), USD);
+    }
+
+    private void setGiftRulesActive(String tenantId, boolean active) {
+        jdbc.sql("UPDATE gift_rules SET active = :active WHERE tenant_id = :tenantId")
+                .param("active", active)
+                .param("tenantId", tenantId)
+                .update();
     }
 
     private void insertOrder(UUID quoteId, UUID customerId) {
