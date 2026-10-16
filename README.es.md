@@ -40,6 +40,7 @@ Toda operación de negocio exige las cabeceras `X-Tenant-Id` y `X-Customer-Id`. 
 | E-03 | `POST /api/v1/orders` confirma una cotización. Exige `Idempotency-Key` | 201 con `Location` |
 | E-04 | `GET /api/v1/orders/{orderId}` lee un pedido, armado desde su cotización | 200 |
 | E-05 | `GET /api/v1/orders?customerId={id}&size=20` lista los pedidos del cliente, del más reciente al más antiguo, con `size` de máximo 100 | 200 |
+| E-07 | `GET /api/v1/products` lista los productos del tenant en orden de SKU, con precios de lista antes de palancas e impuestos. Solo lee | 200 |
 
 Cotizar 25 colas a crédito para un cliente sembrado con un cupo de 500.000:
 
@@ -213,7 +214,7 @@ Más casos en el mismo arnés: `gift-policy-exempt/`, `gift-policy-taxed/`, `rou
 | Cobro, cancelación y liberación de cupo | No se piden |
 | Persistencia del carrito | No se pide. El carrito viaja en la petición de cotización |
 | Revocación de cotizaciones | No se pide. Es el siguiente paso de la mitigación del riesgo del ADR |
-| Administración de catálogo y palancas | No se pide. Las migraciones siembran los datos |
+| Administración de catálogo y palancas | No se pide. Las migraciones siembran los datos. La única operación de catálogo es una lista de productos de solo lectura (E-07), que alimenta el carrito web opcional. Vive en `quoting` porque lista exactamente lo que E-01 puede cotizar. No se agrega un módulo `catalog`, porque la administración del catálogo queda fuera (SPEC §1) |
 | Categorías de impuesto e historial de precios | No se piden. Cada SKU lleva su tasa de impuesto, y cada línea de cotización guarda el precio y la tasa vigentes al cotizar |
 | Clientes reales de push y ERP | Los fakes detrás de puertos prueban las garantías de entrega. Deduplican por `event_id` y se les puede ordenar que fallen |
 | Archivo OpenAPI, despliegue | No se piden. El contrato es `spec/api-contract.md` del repositorio `orderflow-engine-docs` (en inglés) |
