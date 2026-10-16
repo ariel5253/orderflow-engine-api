@@ -68,7 +68,7 @@ class OutboxRelayIT {
     private static final Duration CLAIM_LIMIT = Duration.ofSeconds(10);
 
     private static final String TENANT = "co-alpha";
-    /** South Corner Shop, a seeded customer of co-alpha. */
+    /** Tienda Sur, a seeded customer of co-alpha. */
     private static final UUID CUSTOMER = UUID.fromString("01a13cdb-cc00-7001-8001-000000000002");
 
     @TestBean

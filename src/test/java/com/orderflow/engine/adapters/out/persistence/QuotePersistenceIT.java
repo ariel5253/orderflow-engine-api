@@ -152,7 +152,9 @@ class QuotePersistenceIT {
         assertThat(stored.sealed()).isEqualTo(sealed);
         assertThat(stored.confirmed()).isFalse();
         assertThat(stored.descriptions()).isEqualTo(Map.of(
-                "BEV-COLA-350", "Cola 350 ml", "SNK-CHIPS-45", "Chips 45 g", "BEV-WATER-600", "Water 600 ml"));
+                "BEV-COLA-350", "Gaseosa cola 350 ml",
+                "SNK-CHIPS-45", "Papas fritas 45 g",
+                "BEV-WATER-600", "Agua 600 ml"));
         assertThat(jdbc.sql("""
                         SELECT line_no, kind, CAST(amount AS text) FROM quote_line_adjustments
                         WHERE tenant_id = :tenantId AND quote_id = :quoteId ORDER BY line_no, kind""")

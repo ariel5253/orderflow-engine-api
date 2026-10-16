@@ -27,8 +27,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * Every changeset has a rollback (DEC-20). The seeds are rolled back first and must leave every table empty, then
- * the remaining changesets must leave an empty schema, and the changelogs must apply again on top of it.
+ * Every changeset has a rollback (DEC-20). The renaming of the seeded rows into the tenants' language (SPEC section
+ * 10.1) is rolled back first and must restore the exact names the seeds inserted. The seeds are rolled back next and
+ * must leave every table empty, then the remaining changesets must leave an empty schema, and the changelogs must
+ * apply again on top of it.
  */
 @Testcontainers
 class LiquibaseRollbackIT {
@@ -38,6 +40,51 @@ class LiquibaseRollbackIT {
 
     private static final String MASTER_CHANGELOG = "db/changelog/db.changelog-master.yaml";
     private static final String SEED_CHANGELOG = "db/changelog/2026/2026-10-15-006-seed-co-and-ec.yaml";
+    private static final String SEED_NAMES_CHANGELOG = "db/changelog/2026/2026-10-16-001-seed-names-in-spanish.yaml";
+
+    /** Each seeded product as "tenant SKU name", in tenant and SKU order. */
+    private static final String PRODUCT_NAMES = """
+            SELECT tenant_id || ' ' || sku || ' ' || name FROM products ORDER BY tenant_id, sku COLLATE "C"
+            """;
+
+    /** Each seeded customer as "tenant id name", in tenant and id order. */
+    private static final String CUSTOMER_NAMES = """
+            SELECT tenant_id || ' ' || id || ' ' || name FROM customers ORDER BY tenant_id, id
+            """;
+
+    /** The product names in the tenants' language. */
+    private static final List<String> SPANISH_PRODUCT_NAMES = List.of(
+            "co-alpha BEV-COLA-1500 Gaseosa cola 1,5 l",
+            "co-alpha BEV-COLA-350 Gaseosa cola 350 ml",
+            "co-alpha BEV-WATER-600 Agua 600 ml",
+            "co-alpha SNK-CHIPS-45 Papas fritas 45 g",
+            "ec-alpha BEV-COLA-1500 Gaseosa cola 1,5 l",
+            "ec-alpha BEV-COLA-350 Gaseosa cola 350 ml",
+            "ec-alpha BEV-WATER-600 Agua 600 ml",
+            "ec-alpha SNK-PLANTAIN-45 Chifles 45 g");
+
+    private static final List<String> SPANISH_CUSTOMER_NAMES = List.of(
+            "co-alpha 01a13cdb-cc00-7001-8001-000000000001 Tienda Norte",
+            "co-alpha 01a13cdb-cc00-7001-8001-000000000002 Tienda Sur",
+            "ec-alpha 01a13cdb-cc00-7002-8001-000000000001 Tienda Quito",
+            "ec-alpha 01a13cdb-cc00-7002-8001-000000000002 Tienda Guayaquil");
+
+    /** The product names the seeds inserted, which the rollback of the renaming restores. */
+    private static final List<String> SEEDED_PRODUCT_NAMES = List.of(
+            "co-alpha BEV-COLA-1500 Cola 1.5 l",
+            "co-alpha BEV-COLA-350 Cola 350 ml",
+            "co-alpha BEV-WATER-600 Water 600 ml",
+            "co-alpha SNK-CHIPS-45 Chips 45 g",
+            "ec-alpha BEV-COLA-1500 Cola 1.5 l",
+            "ec-alpha BEV-COLA-350 Cola 350 ml",
+            "ec-alpha BEV-WATER-600 Water 600 ml",
+            "ec-alpha SNK-PLANTAIN-45 Plantain chips 45 g");
+
+    private static final List<String> SEEDED_CUSTOMER_NAMES = List.of(
+            "co-alpha 01a13cdb-cc00-7001-8001-000000000001 North Corner Shop",
+            "co-alpha 01a13cdb-cc00-7001-8001-000000000002 South Corner Shop",
+            "ec-alpha 01a13cdb-cc00-7002-8001-000000000001 Quito Corner Shop",
+            "ec-alpha 01a13cdb-cc00-7002-8001-000000000002 Guayaquil Corner Shop");
 
     /** Relations, indexes, sequences and constraints of the application schema, without the Liquibase tables. */
     private static final String SCHEMA_OBJECTS = """
@@ -60,8 +107,8 @@ class LiquibaseRollbackIT {
             ORDER BY 1
             """;
 
-    /** The seed changesets and every changeset applied after them, the last ones in execution order. */
-    private static final String CHANGESETS_FROM_THE_SEEDS = """
+    /** The changesets of one changelog and every changeset applied after them, the last ones in execution order. */
+    private static final String CHANGESETS_FROM = """
             SELECT count(*) FROM databasechangelog
             WHERE orderexecuted >= (SELECT min(orderexecuted) FROM databasechangelog WHERE filename = ?)
             """;
@@ -78,8 +125,12 @@ class LiquibaseRollbackIT {
             assertThat(strings(connection, "SELECT id FROM tenants ORDER BY id"))
                     .as("seeded tenants after the first update")
                     .containsExactly("co-alpha", "ec-alpha");
+            assertNames(connection, SPANISH_PRODUCT_NAMES, SPANISH_CUSTOMER_NAMES, "after the first update");
 
-            rollback(database, count(connection, CHANGESETS_FROM_THE_SEEDS, SEED_CHANGELOG));
+            rollback(database, count(connection, CHANGESETS_FROM, SEED_NAMES_CHANGELOG));
+            assertNames(connection, SEEDED_PRODUCT_NAMES, SEEDED_CUSTOMER_NAMES, "after rolling back the renaming");
+
+            rollback(database, count(connection, CHANGESETS_FROM, SEED_CHANGELOG));
             assertThat(tablesWithRows(connection)).as("tables with rows after rolling back the seeds").isEmpty();
 
             rollback(database, count(connection, "SELECT count(*) FROM databasechangelog"));
@@ -92,7 +143,16 @@ class LiquibaseRollbackIT {
             assertThat(strings(connection, "SELECT id FROM tenants ORDER BY id"))
                     .as("seeded tenants after updating again")
                     .containsExactly("co-alpha", "ec-alpha");
+            assertNames(connection, SPANISH_PRODUCT_NAMES, SPANISH_CUSTOMER_NAMES, "after updating again");
         }
+    }
+
+    private static void assertNames(Connection connection, List<String> products, List<String> customers,
+            String when) throws SQLException {
+        assertThat(strings(connection, PRODUCT_NAMES)).as("product names " + when)
+                .containsExactlyElementsOf(products);
+        assertThat(strings(connection, CUSTOMER_NAMES)).as("customer names " + when)
+                .containsExactlyElementsOf(customers);
     }
 
     private static void update(Database database) throws Exception {

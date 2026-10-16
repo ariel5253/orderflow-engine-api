@@ -72,16 +72,16 @@ class QuoteLeversIT {
      */
     private static final String EVERY_LEVER_LINES = """
             [
-              {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 30, "isGift": false,
+              {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 30, "isGift": false,
                "unitPrice": "2500", "gross": "75000",
                "discounts": [{"origin": "TIER:%1$s", "amount": "125"}],
                "comboAllocations": [{"comboId": "%2$s", "amount": "13235"}],
                "net": "61640", "taxableBase": "61640", "taxRate": "0.190000", "tax": "11712"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 10, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 10, "isGift": false,
                "unitPrice": "1800", "gross": "18000", "discounts": [],
                "comboAllocations": [{"comboId": "%2$s", "amount": "4765"}],
                "net": "13235", "taxableBase": "13235", "taxRate": "0.050000", "tax": "662"},
-              {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 1, "isGift": true,
+              {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 1, "isGift": true,
                "origin": "GIFT:%3$s",
                "unitPrice": "0", "gross": "0", "discounts": [], "comboAllocations": [],
                "net": "0", "referenceValue": "1500", "taxableBase": "1500", "taxRate": "0.190000", "tax": "285"}
@@ -100,10 +100,10 @@ class QuoteLeversIT {
      */
     private static final String EVERY_LEVER_LINES_WITHOUT_LEVERS = """
             [
-              {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 30, "isGift": false,
+              {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 30, "isGift": false,
                "unitPrice": "2500", "gross": "75000", "discounts": [], "comboAllocations": [],
                "net": "75000", "taxableBase": "75000", "taxRate": "0.190000", "tax": "14250"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 10, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 10, "isGift": false,
                "unitPrice": "1900", "gross": "19000", "discounts": [], "comboAllocations": [],
                "net": "19000", "taxableBase": "19000", "taxRate": "0.050000", "tax": "950"}
             ]""";
@@ -132,7 +132,7 @@ class QuoteLeversIT {
 
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
-                [{"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 25, "isGift": false,
+                [{"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 25, "isGift": false,
                   "unitPrice": "2500", "gross": "62500",
                   "discounts": [{"origin": "TIER:%s", "amount": "2750"}],
                   "comboAllocations": [],
@@ -166,11 +166,11 @@ class QuoteLeversIT {
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 4, "isGift": false,
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 4, "isGift": false,
                    "unitPrice": "2500", "gross": "10000", "discounts": [],
                    "comboAllocations": [{"comboId": "%1$s", "amount": "2647"}],
                    "net": "7353", "taxableBase": "7353", "taxRate": "0.190000", "tax": "1397"},
-                  {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 2, "isGift": false,
+                  {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 2, "isGift": false,
                    "unitPrice": "1800", "gross": "3600", "discounts": [],
                    "comboAllocations": [{"comboId": "%1$s", "amount": "953"}],
                    "net": "2647", "taxableBase": "2647", "taxRate": "0.050000", "tax": "132"}
@@ -199,10 +199,10 @@ class QuoteLeversIT {
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 20, "isGift": false,
+                  {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 20, "isGift": false,
                    "unitPrice": "1800", "gross": "36000", "discounts": [], "comboAllocations": [],
                    "net": "36000", "taxableBase": "36000", "taxRate": "0.050000", "tax": "1800"},
-                  {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 2, "isGift": true,
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 2, "isGift": true,
                    "origin": "GIFT:%s",
                    "unitPrice": "0", "gross": "0", "discounts": [], "comboAllocations": [],
                    "net": "0", "referenceValue": "3000", "taxableBase": "3000", "taxRate": "0.190000", "tax": "570"}
@@ -234,15 +234,15 @@ class QuoteLeversIT {
         assertThat(body.required("currency").stringValue()).isEqualTo("USD");
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "qty": 30, "isGift": false,
+                  {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "qty": 30, "isGift": false,
                    "unitPrice": "1.45", "gross": "43.50",
                    "discounts": [{"origin": "TIER:%1$s", "amount": "1.51"}], "comboAllocations": [],
                    "net": "41.99", "taxableBase": "41.99", "taxRate": "0.150000", "tax": "6.30"},
-                  {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 15, "isGift": false,
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 15, "isGift": false,
                    "unitPrice": "0.60", "gross": "9.00",
                    "discounts": [{"origin": "TIER:%1$s", "amount": "0.72"}], "comboAllocations": [],
                    "net": "8.28", "taxableBase": "8.28", "taxRate": "0.150000", "tax": "1.24"},
-                  {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 2, "isGift": true,
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 2, "isGift": true,
                    "origin": "GIFT:%2$s",
                    "unitPrice": "0.00", "gross": "0.00", "discounts": [], "comboAllocations": [],
                    "net": "0.00", "referenceValue": "0.90", "taxableBase": "0.00", "taxRate": "0.150000",
