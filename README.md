@@ -218,6 +218,7 @@ More cases in the same harness: `gift-policy-exempt/`, `gift-policy-taxed/`, `ro
 | Tax categories and price history | Not required. Each SKU carries its tax rate, and each quote line keeps the price and rate in force when it was quoted |
 | Real push and ERP clients | Fakes behind ports prove the delivery guarantees. They deduplicate by `event_id` and can be told to fail |
 | OpenAPI file, deployment | Not required. The contract is `spec/api-contract.md` in the `orderflow-engine-docs` repository |
+| CORS configuration | Not needed. The web client's nginx forwards `/api/` to this service, so the browser sees one origin |
 | SonarQube or SonarCloud | It needs a server. It would import the JaCoCo XML report this build already produces, so CI can add it without project changes |
 | CI pipeline | Verification runs locally with `./mvnw verify`. A workflow would run the same command on every pull request |
 | Mutation testing in CI | PIT runs in the optional `mutation` profile before delivery. A nightly job, or a run on the changed files, needs only CI configuration |
@@ -226,7 +227,16 @@ More cases in the same harness: `gift-policy-exempt/`, `gift-policy-taxed/`, `ro
 
 The adoption path of each of the last five rows (today's state, how it is adopted, and its trigger) is in `spec/plan.md` §3 of the `orderflow-engine-docs` repository.
 
-Time spent: three working days (2026-10-13 to 2026-10-15), including the specification.
+### Time spent
+
+| Part | Measured time |
+|------|---------------|
+| The take-home (A1, A2, A3), including the specification | Three working days, 2026-10-13 to 2026-10-15 |
+| The assignment's optional screen: the order summary | 68 min |
+| Its container, the web client in the full stack and the web step of `test-all` | 55 min |
+| The extension beyond the assignment: the product list (E-07), the cart, the idempotent confirmation, the order, the store picker and My orders | 3 h 1 min |
+
+The web times are the working time of each slice, building and fixing it, taken from timestamps recorded at each step. Review time is not included. The slices were built between 2026-10-15 22:05 and 2026-10-16 06:15 (UTC-5), several of them in parallel. The screen alone exceeds the hour the assignment sets for it, once its tests and its container are counted.
 
 ## Repositories
 
@@ -234,7 +244,7 @@ Time spent: three working days (2026-10-13 to 2026-10-15), including the specifi
 |------------|------|
 | `orderflow-engine-api` (this one) | The deliverable: code, tests, this README, the ADR |
 | `orderflow-engine-docs` | Specification, contract, data model, architecture, diagrams |
-| `orderflow-engine-web` | The optional order-summary screen |
+| `orderflow-engine-web` | The optional web client: the order summary the assignment offers, and the ordering flow around it |
 | `orderflow-engine-infra` | The full stack with Docker Compose, and the workspace test command |
 | `orderflow-engine-tools` | Generators and checks for the documentation and the repositories |
 | `orderflow-engine-app` | Reserved for a future mobile app |
