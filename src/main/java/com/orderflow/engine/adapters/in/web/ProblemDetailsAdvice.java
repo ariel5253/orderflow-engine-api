@@ -1,8 +1,11 @@
 package com.orderflow.engine.adapters.in.web;
 
+import com.orderflow.engine.ordering.OrderRejectedException;
 import com.orderflow.engine.pricing.domain.CartRejectedException;
 import com.orderflow.engine.quoting.QuoteRejectedException;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +57,21 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
         return problem(ex, code, code.status(), new HttpHeaders(), request);
     }
 
+    /**
+     * A confirmation rejected by the ordering rules. Its code is named after the public code, so it maps by name. A
+     * quote that is confirmed already also names its order, so a client that lost the first answer can find it (BD-03).
+     */
+    @ExceptionHandler(OrderRejectedException.class)
+    ResponseEntity<Object> handleOrderRejected(OrderRejectedException ex, WebRequest request) {
+        ErrorCode code = ErrorCode.valueOf(ex.code().name());
+        Map<String, Object> properties = new LinkedHashMap<>();
+        ex.existingOrder().ifPresent(order -> {
+            properties.put("orderNumber", order.orderNumber());
+            properties.put("orderId", order.orderId());
+        });
+        return problem(ex, code, code.status(), new HttpHeaders(), request, properties);
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) {
         return problem(ex, ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.status(), new HttpHeaders(), request);
@@ -81,6 +99,12 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
 
     private ResponseEntity<Object> problem(Exception ex, ErrorCode code, HttpStatusCode status, HttpHeaders headers,
             WebRequest request) {
+        return problem(ex, code, status, headers, request, Map.of());
+    }
+
+    /** {@code properties} are added to the body after the code and the correlation id, in their iteration order. */
+    private ResponseEntity<Object> problem(Exception ex, ErrorCode code, HttpStatusCode status, HttpHeaders headers,
+            WebRequest request, Map<String, Object> properties) {
         if (status.is5xxServerError()) {
             LOG.error("Unexpected error, answered as {} with status {}", code, status.value(), ex);
         }
@@ -92,6 +116,7 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
         problem.setProperty("code", code.name());
         problem.setProperty("correlationId",
                 request.getAttribute(CorrelationIdFilter.ATTRIBUTE, RequestAttributes.SCOPE_REQUEST));
+        properties.forEach(problem::setProperty);
         return super.handleExceptionInternal(ex, problem, headers, status, request);
     }
 }
