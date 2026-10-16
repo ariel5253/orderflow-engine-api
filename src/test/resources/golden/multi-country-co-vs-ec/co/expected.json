@@ -1,0 +1,34 @@
+{
+  "currency": "COP",
+  "lines": [
+    {
+      "sku": "BEV-COLA-1500", "qty": 24, "isGift": false,
+      "unitPrice": "5200", "gross": "124800", "discounts": [],
+      "comboAllocations": [], "net": "124800", "taxableBase": "124800", "taxRate": "0.190000", "tax": "23712"
+    },
+    {
+      "sku": "BEV-COLA-350", "qty": 25, "isGift": false,
+      "unitPrice": "2500", "gross": "62500",
+      "discounts": [
+        { "origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "2750" }
+      ],
+      "comboAllocations": [],
+      "net": "59750", "taxableBase": "59750", "taxRate": "0.190000", "tax": "11353"
+    },
+    {
+      "sku": "BEV-WATER-600", "qty": 6, "isGift": false,
+      "unitPrice": "1500", "gross": "9000", "discounts": [],
+      "comboAllocations": [], "net": "9000", "taxableBase": "9000", "taxRate": "0.190000", "tax": "1710"
+    }
+  ],
+  "totals": {
+    "grossSubtotal": "196300",
+    "discounts": [
+      { "origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "2750" }
+    ],
+    "gifts": [],
+    "taxableBase": "193550",
+    "taxes": "36775",
+    "total": "230325"
+  }
+}

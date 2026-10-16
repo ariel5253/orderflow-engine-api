@@ -24,6 +24,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,11 +45,15 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Pins the engine's full breakdown for fixed inputs (SPEC section 11). Each folder under
- * {@code golden/} is one case: {@code request.json} is the body of a quote request, whose lines the
- * engine prices; {@code snapshot.json} is the policy, catalog and active levers the engine reads;
- * and {@code expected.json} is the breakdown, with money as strings at the currency scale. A new
- * folder is a new case: every case is compared in full and checked against the BR-05 identities
- * (AC-02). The assignment's golden tests also assert their key numbers by name.
+ * {@code golden/} that holds no other folder is one case: {@code request.json} is the body of a
+ * quote request, whose lines the engine prices; {@code snapshot.json} is the policy, catalog and
+ * active levers the engine reads; and {@code expected.json} is the breakdown, with money as strings
+ * at the currency scale. A case that compares variants of one input keeps each variant in a folder
+ * of its own inside the case folder, named {@code <case>/<variant>}, and each variant is a case. A
+ * new folder is a new case: every case is compared in full and checked against the BR-05 identities
+ * (AC-02), and a case folder that misses one of the three files fails. The assignment's golden
+ * tests, and the extra goldens of the gift policies, the countries and the rounding edges, also
+ * assert their key numbers by name.
  */
 @Tag("golden")
 class GoldenPricingTest {
@@ -62,14 +67,24 @@ class GoldenPricingTest {
 
     private final PricingEngine engine = new PricingEngine();
 
+    // A folder is a case by its place, not by its files, so a case that misses a file fails to load
+    // instead of dropping out of the run.
     static Stream<String> cases() throws IOException {
-        try (Stream<Path> folders = Files.list(goldenRoot())) {
-            return folders.filter(Files::isDirectory)
-                    .map(folder -> folder.getFileName().toString())
-                    .sorted()
-                    .toList()
-                    .stream();
+        Path root = goldenRoot();
+        List<Path> folders;
+        try (Stream<Path> paths = Files.walk(root)) {
+            folders = paths.filter(Files::isDirectory).toList();
         }
+        return folders.stream()
+                .filter(folder -> folders.stream().noneMatch(other -> folder.equals(other.getParent())))
+                .map(folder -> caseName(root, folder))
+                .sorted();
+    }
+
+    // The folder's path below golden/, with forward slashes on every platform.
+    private static String caseName(Path root, Path folder) {
+        Path relative = root.relativize(folder);
+        return relative.toString().replace(relative.getFileSystem().getSeparator(), "/");
     }
 
     @ParameterizedTest(name = "{0}")
@@ -350,6 +365,120 @@ class GoldenPricingTest {
                 List.of(gift), usd(usd, "49.56"), usd(usd, "7.44"), usd(usd, "56.10")));
     }
 
+    /**
+     * AC-11: the same cart priced in CO (COP, scale 0) and in EC (USD, scale 2) follows each country's
+     * data, the seeds of co-alpha and ec-alpha. The cart holds only SKUs both tenants sell: 25 colas
+     * 350, 6 waters 600 and 24 colas 1.5 l. Nothing in the engine names a country, a currency, a scale
+     * or a rate, so every difference below comes from the snapshot.
+     */
+    @Test
+    void multiCountry() {
+        GoldenCase co = GoldenCase.load("multi-country-co-vs-ec/co");
+        GoldenCase ec = GoldenCase.load("multi-country-co-vs-ec/ec");
+        CurrencyPolicy cop = co.snapshot().policy();
+        CurrencyPolicy usd = ec.snapshot().policy();
+        Discount coTier = new Discount(Discount.Kind.TIER,
+                UUID.fromString("01a13cdb-cc00-7001-8003-000000000001"), cop(cop, "2750"));
+        UUID ecTierRule = UUID.fromString("01a13cdb-cc00-7002-8003-000000000001");
+        UUID ecGiftRule = UUID.fromString("01a13cdb-cc00-7002-8005-000000000001");
+
+        Breakdown coBreakdown = engine.price(co.cart(), co.snapshot());
+        Breakdown ecBreakdown = engine.price(ec.cart(), ec.snapshot());
+
+        assertThat(co.cart()).isEqualTo(ec.cart());
+        // RF-5: the JDK lists COP with 2 decimals, yet every CO amount has the scale 0 of the country
+        // data, and every EC amount the scale 2 of USD.
+        assertThat(Currency.getInstance("COP").getDefaultFractionDigits()).isEqualTo(2);
+        assertThat(coBreakdown.currency()).isEqualTo("COP");
+        assertThat(ecBreakdown.currency()).isEqualTo("USD");
+        assertThat(amounts(coBreakdown)).allSatisfy(amount -> assertThat(amount.amount().scale()).isZero());
+        assertThat(amounts(ecBreakdown)).allSatisfy(amount -> assertThat(amount.amount().scale()).isEqualTo(2));
+        // CO: the tier rule targets the cola 350 alone, so the colas 1.5 l neither count nor earn a
+        // discount. Units 10 to 19 give 10 x 2,500 x 5% = 1,250 and units 20 to 25 give
+        // 6 x 2,500 x 10% = 1,500: 2,750, as in GT-01. Every tax is 19%: 124,800 x 19% = 23,712,
+        // 59,750 x 19% = 11,352.5 -> 11,353 (half a peso, HALF_UP) and 9,000 x 19% = 1,710. The gift
+        // rule needs 10 snacks, so no gift.
+        assertThat(coBreakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::gross, LineBreakdown::discounts,
+                        LineBreakdown::net, LineBreakdown::tax)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", cop(cop, "124800"), List.of(), cop(cop, "124800"), cop(cop, "23712")),
+                        tuple("BEV-COLA-350", cop(cop, "62500"), List.of(coTier), cop(cop, "59750"), cop(cop, "11353")),
+                        tuple("BEV-WATER-600", cop(cop, "9000"), List.of(), cop(cop, "9000"), cop(cop, "1710")));
+        assertThat(coBreakdown.totals()).isEqualTo(new Totals(cop(cop, "196300"), List.of(coTier), List.of(),
+                cop(cop, "193550"), cop(cop, "36775"), cop(cop, "230325")));
+        // EC: the tier rule targets the colas family, counted in SKU order (A-03). The colas 1.5 l take
+        // units 1 to 24: 12 x 1.45 x 4% + 1 x 1.45 x 8% = 0.812 -> 0.81. The colas 350 take units 25
+        // to 49, all at 8%: 25 x 0.60 x 8% = 1.20. Every tax is 15%: 33.99 x 15% = 5.0985 -> 5.10,
+        // 13.80 x 15% = 2.07 and 2.70 x 15% = 0.405 -> 0.41 (half a cent, HALF_UP). The gross,
+        // 34.80 + 15.00 + 2.70 = 52.50, reaches the 50.00 of the gift rule: 2 waters that list at
+        // 0.90, with no taxable base, because Ecuador exempts gifts.
+        assertThat(ecBreakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::gross, LineBreakdown::discounts,
+                        LineBreakdown::net, LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", usd(usd, "34.80"),
+                                List.of(new Discount(Discount.Kind.TIER, ecTierRule, usd(usd, "0.81"))),
+                                usd(usd, "33.99"), usd(usd, "33.99"), usd(usd, "5.10")),
+                        tuple("BEV-COLA-350", usd(usd, "15.00"),
+                                List.of(new Discount(Discount.Kind.TIER, ecTierRule, usd(usd, "1.20"))),
+                                usd(usd, "13.80"), usd(usd, "13.80"), usd(usd, "2.07")),
+                        tuple("BEV-WATER-600", usd(usd, "2.70"), List.of(), usd(usd, "2.70"), usd(usd, "2.70"),
+                                usd(usd, "0.41")),
+                        tuple("BEV-WATER-600", usd(usd, "0.00"), List.of(), usd(usd, "0.00"), usd(usd, "0.00"),
+                                usd(usd, "0.00")));
+        assertThat(ecBreakdown.lines().get(3).gift())
+                .contains(new GiftReference(ecGiftRule, usd(usd, "0.90")));
+        // The family's entry is its two rounded line discounts, 0.81 + 1.20 = 2.01. The total is the
+        // net 50.49 plus the taxes 5.10 + 2.07 + 0.41 = 7.58.
+        assertThat(ecBreakdown.totals()).isEqualTo(new Totals(usd(usd, "52.50"),
+                List.of(new Discount(Discount.Kind.TIER, ecTierRule, usd(usd, "2.01"))),
+                List.of(new Gift(ecGiftRule, "BEV-WATER-600", 2)),
+                usd(usd, "50.49"), usd(usd, "7.58"), usd(usd, "58.07")));
+    }
+
+    /**
+     * The rounding edges of SPEC section 4 on the co-alpha catalog, COP at scale 0 with HALF_UP: a tier
+     * discount, two combo allocations and a tax that each fall on half a peso. The cart is 15 colas
+     * 350, 12 waters 600, a cola 1.5 l and 2 chips. Besides the seeded rule on the cola 350, a rule
+     * takes 2.5% off every water from the 6th on, and a combo sells a cola 1.5 l with 2 chips for 7,799.
+     */
+    @Test
+    void roundingHalfCases() {
+        GoldenCase golden = GoldenCase.load("rounding-half-cases");
+        CurrencyPolicy cop = golden.snapshot().policy();
+        UUID combo = UUID.fromString("01a13cdb-cc00-7001-8004-000000000002");
+        Discount colaTier = new Discount(Discount.Kind.TIER,
+                UUID.fromString("01a13cdb-cc00-7001-8003-000000000001"), cop(cop, "750"));
+        Discount waterTier = new Discount(Discount.Kind.TIER,
+                UUID.fromString("01a13cdb-cc00-7001-8003-000000000002"), cop(cop, "263"));
+
+        Breakdown breakdown = engine.price(golden.cart(), golden.snapshot());
+
+        // RP-2, combo: 5,200 + 3,600 = 8,800 sold for 7,799 is 1,001 off. The exact shares
+        // 1,001 x 5,200 / 8,800 = 591.5 and 1,001 x 3,600 / 8,800 = 409.5 truncate to 591 and 409; the
+        // leftover peso goes to the first SKU of the tie, BEV-COLA-1500: 592 and 409.
+        // RP-2, tier: units 6 to 12 of the waters, 7 x 1,500 x 2.5% = 262.5 -> 263. The cola 350's
+        // 6 x 2,500 x 5% = 750 needs no rounding.
+        // RP-4: 4,608 x 19% = 875.52 -> 876; 36,750 x 19% = 6,982.5 -> 6,983; 17,737 x 19% = 3,370.03
+        // -> 3,370; 3,191 x 5% = 159.55 -> 160.
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::discounts, LineBreakdown::comboAllocations,
+                        LineBreakdown::net, LineBreakdown::tax)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", List.of(), List.of(new ComboAllocation(combo, cop(cop, "592"))),
+                                cop(cop, "4608"), cop(cop, "876")),
+                        tuple("BEV-COLA-350", List.of(colaTier), List.of(), cop(cop, "36750"), cop(cop, "6983")),
+                        tuple("BEV-WATER-600", List.of(waterTier), List.of(), cop(cop, "17737"), cop(cop, "3370")),
+                        tuple("SNK-CHIPS-45", List.of(), List.of(new ComboAllocation(combo, cop(cop, "409"))),
+                                cop(cop, "3191"), cop(cop, "160")));
+        // RP-5: the taxes are the sum of the line taxes, 876 + 6,983 + 3,370 + 160 = 11,389. Rounding
+        // the exact sum 875.52 + 6,982.5 + 3,370.03 + 159.55 = 11,387.60 would give 11,388.
+        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "64300"),
+                List.of(new Discount(Discount.Kind.COMBO, combo, cop(cop, "1001")), colaTier, waterTier),
+                List.of(), cop(cop, "62286"), cop(cop, "11389"), cop(cop, "73675")));
+    }
+
     private static Money cop(CurrencyPolicy cop, String amount) {
         return new Money(new BigDecimal(amount), cop);
     }
@@ -369,6 +498,21 @@ class GoldenPricingTest {
 
     private static Money sumOfAllocations(List<ComboAllocation> allocations, CurrencyPolicy policy) {
         return allocations.stream().map(ComboAllocation::amount).reduce(Money.zero(policy), Money::plus);
+    }
+
+    // Every amount of a breakdown: each line's and each total's money, discounts and gifts included.
+    private static List<Money> amounts(Breakdown breakdown) {
+        List<Money> amounts = new ArrayList<>();
+        for (LineBreakdown line : breakdown.lines()) {
+            amounts.addAll(List.of(line.unitPrice(), line.gross(), line.net(), line.taxableBase(), line.tax()));
+            line.discounts().forEach(discount -> amounts.add(discount.amount()));
+            line.comboAllocations().forEach(allocation -> amounts.add(allocation.amount()));
+            line.gift().ifPresent(gift -> amounts.add(gift.referenceValue()));
+        }
+        Totals totals = breakdown.totals();
+        amounts.addAll(List.of(totals.grossSubtotal(), totals.taxableBase(), totals.taxes(), totals.total()));
+        totals.discounts().forEach(discount -> amounts.add(discount.amount()));
+        return amounts;
     }
 
     private static ObjectNode toJson(Breakdown breakdown) {
