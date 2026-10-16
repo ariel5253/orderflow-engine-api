@@ -6,5 +6,6 @@
     { "sku": "SNK-PLANTAIN-45", "family": "snacks", "listPrice": "0.55", "taxRate": "0.150000" },
     { "sku": "BEV-WATER-600", "family": "waters", "listPrice": "0.45", "taxRate": "0.150000" }
   ],
-  "tierRules": []
+  "tierRules": [],
+  "comboRules": []
 }

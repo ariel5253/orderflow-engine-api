@@ -118,7 +118,7 @@ class GoldenQuoteTest {
                     PaymentMethod.valueOf(request.required("paymentMethod").stringValue()),
                     new Cart(lines),
                     new TenantPolicy(currency, Duration.parse(snapshot.required("quoteTtl").stringValue())),
-                    new PricingSnapshot(currency, products, List.of()),
+                    new PricingSnapshot(currency, products, List.of(), List.of()),
                     descriptions,
                     money(credit.required("limit"), currency),
                     money(credit.required("consumed"), currency),

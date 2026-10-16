@@ -27,6 +27,14 @@ class DiscountTest {
         assertThat(discount.origin()).isEqualTo("TIER:01a13cdb-cc00-7002-8003-000000000001");
     }
 
+    @Test
+    void showsAComboOriginWithItsComboId() {
+        Discount discount = new Discount(Discount.Kind.COMBO,
+                UUID.fromString("01a13cdb-cc00-7002-8004-000000000001"), usd("0.45"));
+
+        assertThat(discount.origin()).isEqualTo("COMBO:01a13cdb-cc00-7002-8004-000000000001");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"0", "0.00", "-0.01"})
     void rejectsAnAmountThatIsNotPositive(String amount) {

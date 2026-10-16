@@ -6,6 +6,7 @@
       "discounts": [
         { "origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "2750" }
       ],
+      "comboAllocations": [],
       "net": "59750", "taxableBase": "59750", "taxRate": "0.190000", "tax": "11353"
     }
   ],

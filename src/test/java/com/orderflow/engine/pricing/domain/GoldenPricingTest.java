@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.ComboRule;
+import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
@@ -87,12 +89,25 @@ class GoldenPricingTest {
         Money sumOfLineDiscounts = breakdown.lines().stream()
                 .map(line -> sumOfDiscounts(line.discounts(), policy))
                 .reduce(Money.zero(policy), Money::plus);
+        Money sumOfLineAllocations = breakdown.lines().stream()
+                .map(line -> sumOfAllocations(line.comboAllocations(), policy))
+                .reduce(Money.zero(policy), Money::plus);
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(totals.grossSubtotal()).as("grossSubtotal = sum of line gross")
                     .isEqualTo(sum(breakdown, LineBreakdown::gross, policy));
             softly.assertThat(sumOfDiscounts(totals.discounts(), policy))
-                    .as("sum of discounts[].amount = sum of line tier discounts")
-                    .isEqualTo(sumOfLineDiscounts);
+                    .as("sum of discounts[].amount = sum of line tier discounts + sum of line comboAllocations")
+                    .isEqualTo(sumOfLineDiscounts.plus(sumOfLineAllocations));
+            for (Discount combo : totals.discounts().stream()
+                    .filter(discount -> discount.kind() == Discount.Kind.COMBO).toList()) {
+                softly.assertThat(breakdown.lines().stream()
+                                .flatMap(line -> line.comboAllocations().stream())
+                                .filter(part -> part.comboId().equals(combo.ruleId()))
+                                .map(ComboAllocation::amount)
+                                .reduce(Money.zero(policy), Money::plus))
+                        .as("%s = sum of its line allocations", combo.origin())
+                        .isEqualTo(combo.amount());
+            }
             softly.assertThat(totals.taxableBase()).as("taxableBase = sum of line net")
                     .isEqualTo(sumOfNet);
             softly.assertThat(totals.taxes()).as("taxes = sum of line tax")
@@ -102,8 +117,10 @@ class GoldenPricingTest {
             for (LineBreakdown line : breakdown.lines()) {
                 softly.assertThat(line.gross()).as("%s: gross = unitPrice x qty", line.sku())
                         .isEqualTo(line.unitPrice().times(line.qty()));
-                softly.assertThat(line.net()).as("%s: net = gross - sum of line discounts", line.sku())
-                        .isEqualTo(line.gross().minus(sumOfDiscounts(line.discounts(), policy)));
+                softly.assertThat(line.net())
+                        .as("%s: net = gross - sum of line discounts - sum of line comboAllocations", line.sku())
+                        .isEqualTo(line.gross().minus(sumOfDiscounts(line.discounts(), policy))
+                                .minus(sumOfAllocations(line.comboAllocations(), policy)));
                 softly.assertThat(line.taxableBase()).as("%s: taxableBase = net", line.sku())
                         .isEqualTo(line.net());
                 BigDecimal exactTax = line.taxableBase().amount().multiply(line.taxRate());
@@ -139,6 +156,70 @@ class GoldenPricingTest {
                 cop(cop, "59750"), cop(cop, "11353"), cop(cop, "71103")));
     }
 
+    /**
+     * GT-02 and AC-05: the products of a combo never show a loose discount. The cart is 21 colas 350
+     * and 10 chips. The snapshot holds the combo of 2 colas and 1 chips at 5,000, and the tier rule
+     * of the cola 350, 10-19 at 5% and 20+ at 10%, which must not fire.
+     */
+    @Test
+    void gt02() {
+        GoldenCase golden = GoldenCase.load("gt02-combo-no-loose-discount");
+        PricingSnapshot snapshot = golden.snapshot();
+        CurrencyPolicy cop = snapshot.policy();
+        UUID combo = UUID.fromString("01a13cdb-cc00-7001-8004-000000000001");
+        UUID tierRule = UUID.fromString("01a13cdb-cc00-7001-8003-000000000001");
+        PricingSnapshot withoutCombo = new PricingSnapshot(cop, List.of(
+                snapshot.product("BEV-COLA-350").orElseThrow(),
+                snapshot.product("SNK-CHIPS-45").orElseThrow()), snapshot.tierRules(), List.of());
+
+        Breakdown breakdown = engine.price(golden.cart(), snapshot);
+        Breakdown tiersOnly = engine.price(golden.cart(), withoutCombo);
+
+        // 10 applications consume 20 colas (50,000) and 10 chips (18,000) for 10 x 5,000: a discount
+        // of 18,000. Its exact shares 13,235.29 and 4,764.71 truncate to 17,999, and the leftover
+        // peso goes to the larger remainder: 13,235 and 4,765. The one cola left is unit 1 of the
+        // tier count, below the 5% bracket.
+        assertThat(breakdown.totals().discounts())
+                .containsExactly(new Discount(Discount.Kind.COMBO, combo, cop(cop, "18000")));
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::discounts, LineBreakdown::comboAllocations)
+                .containsExactly(
+                        tuple("BEV-COLA-350", List.of(), List.of(new ComboAllocation(combo, cop(cop, "13235")))),
+                        tuple("SNK-CHIPS-45", List.of(), List.of(new ComboAllocation(combo, cop(cop, "4765")))));
+        // Without the combo the same 21 colas earn the tier rule: 10 x 2,500 x 5% + 2 x 2,500 x 10%
+        // = 1,750, so the assertions above can fail.
+        assertThat(tiersOnly.totals().discounts())
+                .containsExactly(new Discount(Discount.Kind.TIER, tierRule, cop(cop, "1750")));
+    }
+
+    /**
+     * GT-04 and AC-07, with the worked numbers of SPEC BR-03: 4 colas 350 at 2,500 with 19% tax and
+     * 2 chips at 1,800 with 5% tax, and the combo of 2 colas and 1 chips at 5,000.
+     */
+    @Test
+    void gt04() {
+        GoldenCase golden = GoldenCase.load("gt04-combo-with-taxes");
+        CurrencyPolicy cop = golden.snapshot().policy();
+        UUID combo = UUID.fromString("01a13cdb-cc00-7001-8004-000000000001");
+
+        Breakdown breakdown = engine.price(golden.cart(), golden.snapshot());
+
+        // 2 applications list 10,000 + 3,600 = 13,600 for 10,000: a discount of 3,600, allocated
+        // 2,647 and 953. The tax is taken on the allocated bases: 7,353 x 19% = 1,397.07 -> 1,397
+        // and 2,647 x 5% = 132.35 -> 132. Total 10,000 + 1,529 = 11,529.
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::gross, LineBreakdown::comboAllocations,
+                        LineBreakdown::net, LineBreakdown::taxableBase, LineBreakdown::tax)
+                .containsExactly(
+                        tuple("BEV-COLA-350", cop(cop, "10000"), List.of(new ComboAllocation(combo, cop(cop, "2647"))),
+                                cop(cop, "7353"), cop(cop, "7353"), cop(cop, "1397")),
+                        tuple("SNK-CHIPS-45", cop(cop, "3600"), List.of(new ComboAllocation(combo, cop(cop, "953"))),
+                                cop(cop, "2647"), cop(cop, "2647"), cop(cop, "132")));
+        assertThat(breakdown.totals()).isEqualTo(new Totals(cop(cop, "13600"),
+                List.of(new Discount(Discount.Kind.COMBO, combo, cop(cop, "3600"))),
+                cop(cop, "10000"), cop(cop, "1529"), cop(cop, "11529")));
+    }
+
     private static Money cop(CurrencyPolicy cop, String amount) {
         return new Money(new BigDecimal(amount), cop);
     }
@@ -152,6 +233,10 @@ class GoldenPricingTest {
         return discounts.stream().map(Discount::amount).reduce(Money.zero(policy), Money::plus);
     }
 
+    private static Money sumOfAllocations(List<ComboAllocation> allocations, CurrencyPolicy policy) {
+        return allocations.stream().map(ComboAllocation::amount).reduce(Money.zero(policy), Money::plus);
+    }
+
     private static ObjectNode toJson(Breakdown breakdown) {
         ObjectNode root = JSON.createObjectNode();
         root.put("currency", breakdown.currency());
@@ -163,6 +248,12 @@ class GoldenPricingTest {
                     .put("unitPrice", money(line.unitPrice()))
                     .put("gross", money(line.gross()));
             putDiscounts(node, line.discounts());
+            ArrayNode allocations = node.putArray("comboAllocations");
+            for (ComboAllocation allocation : line.comboAllocations()) {
+                allocations.addObject()
+                        .put("comboId", allocation.comboId().toString())
+                        .put("amount", money(allocation.amount()));
+            }
             node.put("net", money(line.net()))
                     .put("taxableBase", money(line.taxableBase()))
                     .put("taxRate", line.taxRate().toPlainString())
@@ -235,7 +326,8 @@ class GoldenPricingTest {
                         new Money(new BigDecimal(product.required("listPrice").stringValue()), policy),
                         new BigDecimal(product.required("taxRate").stringValue())));
             }
-            return new PricingSnapshot(policy, products, tierRules(snapshot.required("tierRules")));
+            return new PricingSnapshot(policy, products, tierRules(snapshot.required("tierRules")),
+                    comboRules(snapshot.required("comboRules"), policy));
         }
 
         private static List<TierRule> tierRules(JsonNode rules) {
@@ -254,6 +346,21 @@ class GoldenPricingTest {
                         brackets));
             }
             return tierRules;
+        }
+
+        private static List<ComboRule> comboRules(JsonNode rules, CurrencyPolicy policy) {
+            List<ComboRule> comboRules = new ArrayList<>();
+            for (JsonNode rule : rules) {
+                List<Item> items = new ArrayList<>();
+                for (JsonNode item : rule.required("items")) {
+                    items.add(new Item(item.required("sku").stringValue(), item.required("minQty").longValue()));
+                }
+                comboRules.add(new ComboRule(
+                        UUID.fromString(rule.required("id").stringValue()),
+                        new Money(new BigDecimal(rule.required("comboPrice").stringValue()), policy),
+                        items));
+            }
+            return comboRules;
         }
     }
 }

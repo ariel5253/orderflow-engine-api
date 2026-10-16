@@ -6,5 +6,6 @@
     { "sku": "BEV-WATER-600", "name": "Water 600 ml", "family": "waters", "listPrice": "1500", "taxRate": "0.190000" }
   ],
   "tierRules": [],
+  "comboRules": [],
   "credit": { "limit": "500000", "consumed": "100000" }
 }

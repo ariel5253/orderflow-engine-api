@@ -84,6 +84,6 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
                                     "List price of SKU '" + sku + "' of tenant '" + tenantId + "'"),
                             rs.getBigDecimal("tax_rate"));
                 })
-                .list(), List.of());
+                .list(), List.of(), List.of());
     }
 }
