@@ -9,6 +9,7 @@ import com.orderflow.engine.pricing.domain.CurrencyPolicy;
 import com.orderflow.engine.pricing.domain.Money;
 import com.orderflow.engine.pricing.domain.PricingEngine;
 import com.orderflow.engine.pricing.domain.PricingSnapshot;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -118,7 +119,8 @@ class GoldenQuoteTest {
                     PaymentMethod.valueOf(request.required("paymentMethod").stringValue()),
                     new Cart(lines),
                     new TenantPolicy(currency, Duration.parse(snapshot.required("quoteTtl").stringValue())),
-                    new PricingSnapshot(currency, products, List.of(), List.of()),
+                    new PricingSnapshot(currency, GiftTaxPolicy.valueOf(policyNode.required("giftTaxPolicy").stringValue()),
+                            products, List.of(), List.of(), List.of()),
                     descriptions,
                     money(credit.required("limit"), currency),
                     money(credit.required("consumed"), currency),

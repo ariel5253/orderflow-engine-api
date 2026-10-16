@@ -33,7 +33,7 @@ Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify
 
 | Paso | Palanca | Por qué en esta posición |
 |------|---------|--------------------------|
-| 1 | Elegibilidad de obsequios, sobre cantidades pagadas | El obsequio lo activa lo que se compra y nunca reduce lo que se paga por producto |
+| 1 | Elegibilidad de obsequios, sobre cantidades pagadas y el subtotal bruto antes de descuentos | El obsequio lo activa lo que se compra y nunca reduce lo que se paga por producto |
 | 2 | Combos | El precio negociado del combo consume primero sus unidades, para que no reciban además descuento por escala |
 | 3 | Descuento por escala, por tramos marginales, sobre las unidades que no consumió un combo | El incentivo genérico por volumen aplica solo a lo que el combo no tarifó |
 | 4 | Neto de línea = bruto − descuentos | Los descuentos comerciales se liquidan antes del impuesto |

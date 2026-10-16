@@ -1,8 +1,10 @@
 package com.orderflow.engine.pricing.domain;
 
 import com.orderflow.engine.pricing.domain.CartRejectedException.Code;
+import com.orderflow.engine.pricing.domain.LineBreakdown.GiftReference;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import com.orderflow.engine.pricing.domain.lever.ComboStep;
+import com.orderflow.engine.pricing.domain.lever.GiftStep;
 import com.orderflow.engine.pricing.domain.lever.TierDiscountStep;
 import com.orderflow.engine.pricing.domain.lever.TierDiscountStep.Units;
 import java.util.List;
@@ -22,24 +24,26 @@ public final class PricingEngine {
 
     public Breakdown price(Cart cart, PricingSnapshot snapshot) {
         CurrencyPolicy policy = snapshot.policy();
-        List<PaidLine> paid = CartNormalizer.normalize(cart).lines().stream()
-                .map(line -> new PaidLine(productOf(line, snapshot), line.qty()))
+        List<Units> paid = CartNormalizer.normalize(cart).lines().stream()
+                .map(line -> new Units(productOf(line, snapshot), line.qty()))
                 .toList();
+        // Step 1: a gift is triggered by what the customer buys, so it is evaluated on the paid units
+        // and their gross before a combo consumes a unit or a discount lowers a price (A-10).
+        List<Gift> gifts = GiftStep.apply(snapshot.giftRules(), paid);
         // Step 2: a combo prices its units first, so the units it consumes cannot also earn a tier
         // discount (no double dipping).
-        ComboStep.Result combos = ComboStep.apply(snapshot.comboRules(), paid.stream()
-                .map(line -> new Units(line.product(), line.qty()))
-                .toList());
-        // Step 3 counts only the paid units no combo consumed. A gift is never a paid line, so its
-        // units never reach a tier threshold either (A-04).
+        ComboStep.Result combos = ComboStep.apply(snapshot.comboRules(), paid);
+        // Step 3 counts only the paid units no combo consumed. Gift units are never paid units, so
+        // they never reach a combo or a tier threshold either (A-04).
         Map<String, Discount> tierDiscounts =
                 TierDiscountStep.apply(snapshot.tierRules(), combos.unconsumed());
-        List<LineBreakdown> lines = paid.stream()
-                .map(line -> priceLine(line,
-                        Optional.ofNullable(tierDiscounts.get(line.product().sku())).stream().toList(),
-                        combos.allocationsOf(line.product().sku())))
+        List<LineBreakdown> lines = Stream.concat(
+                        paid.stream().map(line -> priceLine(line,
+                                Optional.ofNullable(tierDiscounts.get(line.product().sku())).stream().toList(),
+                                combos.allocationsOf(line.product().sku()))),
+                        gifts.stream().map(gift -> priceGift(gift, snapshot)))
                 .toList();
-        return new Breakdown(policy.currencyCode(), lines, totals(lines, policy));
+        return new Breakdown(policy.currencyCode(), lines, totals(lines, gifts, policy));
     }
 
     private static Product productOf(CartLine line, PricingSnapshot snapshot) {
@@ -47,10 +51,10 @@ public final class PricingEngine {
                 Code.UNKNOWN_SKU, "SKU '" + line.sku() + "' is not sold by this tenant"));
     }
 
-    private static LineBreakdown priceLine(PaidLine line, List<Discount> discounts,
+    private static LineBreakdown priceLine(Units line, List<Discount> discounts,
             List<ComboAllocation> comboAllocations) {
         Product product = line.product();
-        Money gross = product.listPrice().times(line.qty());
+        Money gross = product.listPrice().times(line.count());
         // Steps 4 and 5: commercial discounts, the line's part of each combo included, are settled
         // before tax, so the taxable base is the net, which is exact because each component is
         // already rounded (RP-3).
@@ -60,16 +64,33 @@ public final class PricingEngine {
         Money taxableBase = net;
         // Step 6: each line's tax is rounded on its own (RP-4), as on an electronic invoice.
         Money tax = taxableBase.timesRounded(product.taxRate());
-        return new LineBreakdown(product.sku(), line.qty(), product.listPrice(), gross, discounts,
-                comboAllocations, net, taxableBase, product.taxRate(), tax);
+        return new LineBreakdown(product.sku(), line.count(), Optional.empty(), product.listPrice(), gross,
+                discounts, comboAllocations, net, taxableBase, product.taxRate(), tax);
     }
 
-    // Step 7: totals are sums of rounded line values and are never rounded again (RP-5).
-    private static Totals totals(List<LineBreakdown> lines, CurrencyPolicy policy) {
+    // Steps 4 to 6 for a gift line (BR-04). The customer pays nothing for its units, so its gross and
+    // net are zero, and the country's policy decides whether its reference value, what the units list
+    // at, is its taxable base. Its tax is then rounded on its own like any other line's (RP-4).
+    private static LineBreakdown priceGift(Gift gift, PricingSnapshot snapshot) {
+        // The snapshot sells every gift SKU, so the product is always there.
+        Product product = snapshot.product(gift.sku()).orElseThrow();
+        Money zero = Money.zero(snapshot.policy());
+        Money referenceValue = product.listPrice().times(gift.qty());
+        Money taxableBase = snapshot.giftTaxPolicy().taxableBase(referenceValue);
+        return new LineBreakdown(product.sku(), gift.qty(),
+                Optional.of(new GiftReference(gift.ruleId(), referenceValue)), zero, zero, List.of(),
+                List.of(), zero, taxableBase, product.taxRate(), taxableBase.timesRounded(product.taxRate()));
+    }
+
+    // Step 7: totals are sums of rounded line values and are never rounded again (RP-5). A gift line's
+    // gross and net are zero, so the gross subtotal and the total count only paid lines, while the
+    // taxable base and the taxes include each gift line's own.
+    private static Totals totals(List<LineBreakdown> lines, List<Gift> gifts, CurrencyPolicy policy) {
         Money taxes = sum(lines, LineBreakdown::tax, policy);
         return new Totals(
                 sum(lines, LineBreakdown::gross, policy),
                 discountsByOrigin(lines),
+                gifts,
                 sum(lines, LineBreakdown::taxableBase, policy),
                 taxes,
                 sum(lines, LineBreakdown::net, policy).plus(taxes));
@@ -94,9 +115,5 @@ public final class PricingEngine {
     private static Money sum(List<LineBreakdown> lines, Function<LineBreakdown, Money> amount,
             CurrencyPolicy policy) {
         return lines.stream().map(amount).reduce(Money.zero(policy), Money::plus);
-    }
-
-    /** A line of the normalized cart, with the product its SKU names in the snapshot. */
-    private record PaidLine(Product product, long qty) {
     }
 }

@@ -7,6 +7,11 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import com.orderflow.engine.pricing.domain.lever.ComboRule;
 import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
+import com.orderflow.engine.pricing.domain.lever.GiftRule;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.FamilyQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.GrossSubtotal;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.SkuQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
@@ -28,9 +33,17 @@ class PricingSnapshotTest {
     private static final UUID RULE_2 = UUID.fromString("01a13cdb-cc00-7001-8003-000000000002");
     private static final UUID COMBO_1 = UUID.fromString("01a13cdb-cc00-7001-8004-000000000001");
     private static final UUID COMBO_2 = UUID.fromString("01a13cdb-cc00-7001-8004-000000000002");
+    private static final UUID GIFT_1 = UUID.fromString("01a13cdb-cc00-7001-8005-000000000001");
+    private static final UUID GIFT_2 = UUID.fromString("01a13cdb-cc00-7001-8005-000000000002");
 
     private static Product product(String sku, CurrencyPolicy policy, String listPrice, String taxRate) {
         return new Product(sku, "colas", new Money(new BigDecimal(listPrice), policy), new BigDecimal(taxRate));
+    }
+
+    // A snapshot of the COP policy without gift rules.
+    private static PricingSnapshot snapshot(List<Product> products, List<TierRule> tierRules,
+            List<ComboRule> comboRules) {
+        return new PricingSnapshot(COP, GiftTaxPolicy.TAXED, products, tierRules, comboRules, List.of());
     }
 
     private static TierRule rule(UUID id, Scope scope, String target) {
@@ -40,7 +53,7 @@ class PricingSnapshotTest {
     @Test
     void findsAProductByItsSkuCode() {
         Product cola = product("BEV-COLA-1500", COP, "5200", "0.190000");
-        PricingSnapshot snapshot = new PricingSnapshot(COP, List.of(cola), List.of(), List.of());
+        PricingSnapshot snapshot = snapshot(List.of(cola), List.of(), List.of());
 
         assertThat(snapshot.policy()).isEqualTo(COP);
         assertThat(snapshot.product("BEV-COLA-1500")).contains(cola);
@@ -53,7 +66,7 @@ class PricingSnapshotTest {
         List<Product> products = List.of(product("BEV-COLA-1500", USD, "1.45", "0.150000"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, products, List.of(), List.of()))
+                .isThrownBy(() -> snapshot(products, List.of(), List.of()))
                 .withMessageContaining("BEV-COLA-1500")
                 .withMessageContaining("USD")
                 .withMessageContaining("COP");
@@ -66,7 +79,7 @@ class PricingSnapshotTest {
                 product("BEV-COLA-1500", COP, "5300", "0.190000"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, products, List.of(), List.of()))
+                .isThrownBy(() -> snapshot(products, List.of(), List.of()))
                 .withMessageContaining("BEV-COLA-1500");
     }
 
@@ -77,7 +90,7 @@ class PricingSnapshotTest {
         TierRule familyRule = rule(RULE_2, Scope.FAMILY, "BEV-COLA-350");
         List<TierRule> rules = new ArrayList<>(List.of(skuRule, familyRule));
 
-        PricingSnapshot snapshot = new PricingSnapshot(COP, List.of(), rules, List.of());
+        PricingSnapshot snapshot = snapshot(List.of(), rules, List.of());
         rules.clear();
 
         assertThat(snapshot.tierRules()).containsExactly(skuRule, familyRule);
@@ -93,10 +106,10 @@ class PricingSnapshotTest {
                 rule(RULE_2, Scope.FAMILY, "colas"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, List.of(), onOneSku, List.of()))
+                .isThrownBy(() -> snapshot(List.of(), onOneSku, List.of()))
                 .withMessageContaining("SKU BEV-COLA-350");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, List.of(), onOneFamily, List.of()))
+                .isThrownBy(() -> snapshot(List.of(), onOneFamily, List.of()))
                 .withMessageContaining("FAMILY colas");
     }
 
@@ -107,7 +120,7 @@ class PricingSnapshotTest {
                 rule(RULE_1, Scope.FAMILY, "colas"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, List.of(), rules, List.of()))
+                .isThrownBy(() -> snapshot(List.of(), rules, List.of()))
                 .withMessageContaining(RULE_1.toString());
     }
 
@@ -123,7 +136,7 @@ class PricingSnapshotTest {
         ComboRule second = combo(COMBO_2, COP, "6000");
         List<ComboRule> combos = new ArrayList<>(List.of(first, second));
 
-        PricingSnapshot snapshot = new PricingSnapshot(COP, List.of(), List.of(), combos);
+        PricingSnapshot snapshot = snapshot(List.of(), List.of(), combos);
         combos.clear();
 
         assertThat(snapshot.comboRules()).containsExactly(first, second);
@@ -134,7 +147,7 @@ class PricingSnapshotTest {
         List<ComboRule> combos = List.of(combo(COMBO_1, COP, "5000"), combo(COMBO_1, COP, "6000"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, List.of(), List.of(), combos))
+                .isThrownBy(() -> snapshot(List.of(), List.of(), combos))
                 .withMessageContaining(COMBO_1.toString())
                 .withMessageContaining("twice");
     }
@@ -144,8 +157,64 @@ class PricingSnapshotTest {
         List<ComboRule> combos = List.of(combo(COMBO_1, USD, "3.99"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new PricingSnapshot(COP, List.of(), List.of(), combos))
+                .isThrownBy(() -> snapshot(List.of(), List.of(), combos))
                 .withMessageContaining(COMBO_1.toString())
+                .withMessageContaining("USD")
+                .withMessageContaining("COP");
+    }
+
+    private static GiftRule gift(UUID id, GiftRule.Trigger trigger, String giftSku) {
+        return new GiftRule(id, trigger, giftSku, 1, true);
+    }
+
+    private static PricingSnapshot withGifts(List<GiftRule> gifts) {
+        return new PricingSnapshot(COP, GiftTaxPolicy.EXEMPT,
+                List.of(product("BEV-WATER-600", COP, "1500", "0.190000")), List.of(), List.of(), gifts);
+    }
+
+    @Test
+    void keepsTheGiftTaxPolicyAndTheActiveGiftRulesAndCannotBeChangedThroughTheGivenList() {
+        GiftRule snacks = gift(GIFT_1, new FamilyQuantity("snacks", 10), "BEV-WATER-600");
+        GiftRule gross = gift(GIFT_2, new GrossSubtotal(new Money(new BigDecimal("50000"), COP)), "BEV-WATER-600");
+        List<GiftRule> gifts = new ArrayList<>(List.of(snacks, gross));
+
+        PricingSnapshot snapshot = withGifts(gifts);
+        gifts.clear();
+
+        assertThat(snapshot.giftTaxPolicy()).isEqualTo(GiftTaxPolicy.EXEMPT);
+        assertThat(snapshot.giftRules()).containsExactly(snacks, gross);
+    }
+
+    @Test
+    void rejectsAGiftRuleListedTwice() {
+        List<GiftRule> gifts = List.of(
+                gift(GIFT_1, new SkuQuantity("SNK-CHIPS-45", 10), "BEV-WATER-600"),
+                gift(GIFT_1, new FamilyQuantity("snacks", 20), "BEV-WATER-600"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> withGifts(gifts))
+                .withMessageContaining(GIFT_1.toString())
+                .withMessageContaining("twice");
+    }
+
+    @Test
+    void rejectsAGiftOfASkuTheTenantDoesNotSell() {
+        List<GiftRule> gifts = List.of(gift(GIFT_1, new SkuQuantity("SNK-CHIPS-45", 10), "BEV-TEA-500"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> withGifts(gifts))
+                .withMessageContaining(GIFT_1.toString())
+                .withMessageContaining("BEV-TEA-500");
+    }
+
+    @Test
+    void rejectsAGrossSubtotalSetWithAnotherPolicy() {
+        List<GiftRule> gifts = List.of(
+                gift(GIFT_1, new GrossSubtotal(new Money(new BigDecimal("50.00"), USD)), "BEV-WATER-600"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> withGifts(gifts))
+                .withMessageContaining(GIFT_1.toString())
                 .withMessageContaining("USD")
                 .withMessageContaining("COP");
     }
@@ -177,7 +246,11 @@ class PricingSnapshotTest {
                 .withMessage("listPrice");
         assertThatNullPointerException().isThrownBy(() -> new Product("BEV-COLA-1500", "colas", price, null))
                 .withMessage("taxRate");
-        assertThatNullPointerException().isThrownBy(() -> new PricingSnapshot(null, List.of(), List.of(), List.of()))
+        assertThatNullPointerException().isThrownBy(() -> new PricingSnapshot(null, GiftTaxPolicy.TAXED,
+                        List.of(), List.of(), List.of(), List.of()))
                 .withMessage("policy");
+        assertThatNullPointerException().isThrownBy(() -> new PricingSnapshot(COP, null,
+                        List.of(), List.of(), List.of(), List.of()))
+                .withMessage("giftTaxPolicy");
     }
 }

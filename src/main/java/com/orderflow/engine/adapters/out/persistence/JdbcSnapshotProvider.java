@@ -3,6 +3,7 @@ package com.orderflow.engine.adapters.out.persistence;
 import com.orderflow.engine.pricing.domain.CurrencyPolicy;
 import com.orderflow.engine.pricing.domain.PricingSnapshot;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import com.orderflow.engine.quoting.SnapshotProvider;
 import com.orderflow.engine.quoting.TenantPolicy;
 import java.math.RoundingMode;
@@ -29,6 +30,14 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
             FROM tenants t
             JOIN countries c ON c.code = t.country_code
             JOIN currencies cur ON cur.code = c.currency_code
+            WHERE t.id = :tenantId
+            """;
+
+    /** The gift tax policy is fiscal policy of the tenant's country (data-model §1). */
+    private static final String GIFT_TAX_POLICY = """
+            SELECT c.gift_tax_policy
+            FROM tenants t
+            JOIN countries c ON c.code = t.country_code
             WHERE t.id = :tenantId
             """;
 
@@ -74,7 +83,11 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
 
     @Override
     public PricingSnapshot pricingSnapshot(String tenantId, CurrencyPolicy currency, Set<String> skus) {
-        return new PricingSnapshot(currency, jdbc.sql(PRODUCTS)
+        GiftTaxPolicy giftTaxPolicy = GiftTaxPolicy.valueOf(jdbc.sql(GIFT_TAX_POLICY)
+                .param("tenantId", tenantId)
+                .query(String.class)
+                .single());
+        return new PricingSnapshot(currency, giftTaxPolicy, jdbc.sql(PRODUCTS)
                 .param("tenantId", tenantId)
                 .param("skus", skus.toArray(String[]::new))
                 .query((rs, row) -> {
@@ -84,6 +97,6 @@ public class JdbcSnapshotProvider implements SnapshotProvider {
                                     "List price of SKU '" + sku + "' of tenant '" + tenantId + "'"),
                             rs.getBigDecimal("tax_rate"));
                 })
-                .list(), List.of(), List.of());
+                .list(), List.of(), List.of(), List.of());
     }
 }

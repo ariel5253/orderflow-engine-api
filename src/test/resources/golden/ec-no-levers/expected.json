@@ -2,21 +2,25 @@
   "currency": "USD",
   "lines": [
     {
-      "sku": "BEV-COLA-1500", "qty": 2, "unitPrice": "1.45", "gross": "2.90", "discounts": [],
+      "sku": "BEV-COLA-1500", "qty": 2, "isGift": false,
+      "unitPrice": "1.45", "gross": "2.90", "discounts": [],
       "comboAllocations": [], "net": "2.90", "taxableBase": "2.90", "taxRate": "0.150000", "tax": "0.44"
     },
     {
-      "sku": "BEV-WATER-600", "qty": 3, "unitPrice": "0.45", "gross": "1.35", "discounts": [],
+      "sku": "BEV-WATER-600", "qty": 3, "isGift": false,
+      "unitPrice": "0.45", "gross": "1.35", "discounts": [],
       "comboAllocations": [], "net": "1.35", "taxableBase": "1.35", "taxRate": "0.150000", "tax": "0.20"
     },
     {
-      "sku": "SNK-PLANTAIN-45", "qty": 2, "unitPrice": "0.55", "gross": "1.10", "discounts": [],
+      "sku": "SNK-PLANTAIN-45", "qty": 2, "isGift": false,
+      "unitPrice": "0.55", "gross": "1.10", "discounts": [],
       "comboAllocations": [], "net": "1.10", "taxableBase": "1.10", "taxRate": "0.150000", "tax": "0.17"
     }
   ],
   "totals": {
     "grossSubtotal": "5.35",
     "discounts": [],
+    "gifts": [],
     "taxableBase": "5.35",
     "taxes": "0.81",
     "total": "6.16"

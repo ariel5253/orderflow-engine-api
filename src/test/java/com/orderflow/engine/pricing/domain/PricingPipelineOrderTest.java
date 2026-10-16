@@ -3,15 +3,21 @@ package com.orderflow.engine.pricing.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import com.orderflow.engine.pricing.domain.LineBreakdown.GiftReference;
 import com.orderflow.engine.pricing.domain.PricingSnapshot.Product;
 import com.orderflow.engine.pricing.domain.lever.ComboRule;
 import com.orderflow.engine.pricing.domain.lever.ComboRule.Item;
+import com.orderflow.engine.pricing.domain.lever.GiftRule;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.GrossSubtotal;
+import com.orderflow.engine.pricing.domain.lever.GiftRule.SkuQuantity;
+import com.orderflow.engine.pricing.domain.lever.GiftTaxPolicy;
 import com.orderflow.engine.pricing.domain.lever.TierRule;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Bracket;
 import com.orderflow.engine.pricing.domain.lever.TierRule.Scope;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -26,11 +32,13 @@ class PricingPipelineOrderTest {
     private static final UUID COLAS_RULE = UUID.fromString("01a13cdb-cc00-7002-8003-000000000001");
     private static final UUID PLANTAIN_RULE = UUID.fromString("01a13cdb-cc00-7002-8003-000000000000");
     private static final UUID COMBO_RULE = UUID.fromString("01a13cdb-cc00-7002-8004-000000000001");
+    private static final UUID GIFT_RULE = UUID.fromString("01a13cdb-cc00-7002-8005-000000000001");
 
     private static final List<Product> CATALOG = List.of(
             product("BEV-COLA-350", "colas", "0.60", "0.150000"),
             product("BEV-COLA-1500", "colas", "1.45", "0.150000"),
-            product("SNK-PLANTAIN-45", "snacks", "0.55", "0.150000"));
+            product("SNK-PLANTAIN-45", "snacks", "0.55", "0.150000"),
+            product("BEV-WATER-600", "waters", "0.45", "0.150000"));
 
     // The family rule of the ec-alpha seed: units 12 to 23 of the colas get 4%, unit 24 on gets 8%.
     private static final TierRule COLAS = new TierRule(COLAS_RULE, Scope.FAMILY, "colas", List.of(
@@ -38,7 +46,8 @@ class PricingPipelineOrderTest {
             new Bracket(12, new BigDecimal("0.040000")),
             new Bracket(24, new BigDecimal("0.080000"))));
 
-    private static final PricingSnapshot EC_ALPHA = new PricingSnapshot(USD, CATALOG, List.of(COLAS), List.of());
+    private static final PricingSnapshot EC_ALPHA =
+            new PricingSnapshot(USD, GiftTaxPolicy.EXEMPT, CATALOG, List.of(COLAS), List.of(), List.of());
 
     private final PricingEngine engine = new PricingEngine();
 
@@ -54,16 +63,28 @@ class PricingPipelineOrderTest {
         return new Discount(Discount.Kind.TIER, rule, usd(amount));
     }
 
-    // 2 colas 1500 and 1 plantain chips, listed at 2.90 + 0.55 = 3.45, with the colas family rule.
-    private static PricingSnapshot withCombo(String comboPrice) {
-        ComboRule combo = new ComboRule(COMBO_RULE, usd(comboPrice), List.of(
+    // 2 colas 1500 and 1 plantain chips, listed at 2.90 + 0.55 = 3.45.
+    private static ComboRule combo(String comboPrice) {
+        return new ComboRule(COMBO_RULE, usd(comboPrice), List.of(
                 new Item("BEV-COLA-1500", 2),
                 new Item("SNK-PLANTAIN-45", 1)));
-        return new PricingSnapshot(USD, CATALOG, List.of(COLAS), List.of(combo));
+    }
+
+    // The combo, with the colas family rule.
+    private static PricingSnapshot withCombo(String comboPrice) {
+        return new PricingSnapshot(USD, GiftTaxPolicy.EXEMPT, CATALOG, List.of(COLAS), List.of(combo(comboPrice)),
+                List.of());
     }
 
     private static ComboAllocation part(String amount) {
         return new ComboAllocation(COMBO_RULE, usd(amount));
+    }
+
+    // One gift rule that applies once at most, with the colas family rule and the given combos.
+    private static PricingSnapshot withGift(GiftTaxPolicy giftTaxPolicy, List<ComboRule> combos,
+            GiftRule.Trigger trigger, String giftSku, long giftQty) {
+        GiftRule gift = new GiftRule(GIFT_RULE, trigger, giftSku, giftQty, false);
+        return new PricingSnapshot(USD, giftTaxPolicy, CATALOG, List.of(COLAS), combos, List.of(gift));
     }
 
     @Test
@@ -127,7 +148,7 @@ class PricingPipelineOrderTest {
                 .containsExactly(tuple(usd("43.50"), List.of(tier(COLAS_RULE, "1.51")), usd("41.99"),
                         usd("41.99"), usd("6.30")));
         assertThat(breakdown.totals()).isEqualTo(new Totals(usd("43.50"), List.of(tier(COLAS_RULE, "1.51")),
-                usd("41.99"), usd("6.30"), usd("48.29")));
+                List.of(), usd("41.99"), usd("6.30"), usd("48.29")));
     }
 
     @Test
@@ -146,7 +167,7 @@ class PricingPipelineOrderTest {
                         tuple("BEV-COLA-1500", List.of(tier(COLAS_RULE, "0.12")), usd("18.73"), usd("2.81")),
                         tuple("BEV-COLA-350", List.of(tier(COLAS_RULE, "0.29")), usd("6.31"), usd("0.95")));
         assertThat(breakdown.totals()).isEqualTo(new Totals(usd("25.45"), List.of(tier(COLAS_RULE, "0.41")),
-                usd("25.04"), usd("3.76"), usd("28.80")));
+                List.of(), usd("25.04"), usd("3.76"), usd("28.80")));
     }
 
     @Test
@@ -156,7 +177,8 @@ class PricingPipelineOrderTest {
         // 0.55 x 10% = 0.055 -> 0.06.
         TierRule plantain = new TierRule(PLANTAIN_RULE, Scope.SKU, "SNK-PLANTAIN-45",
                 List.of(new Bracket(2, new BigDecimal("0.100000"))));
-        PricingSnapshot snapshot = new PricingSnapshot(USD, CATALOG, List.of(COLAS, plantain), List.of());
+        PricingSnapshot snapshot = new PricingSnapshot(USD, GiftTaxPolicy.EXEMPT, CATALOG, List.of(COLAS, plantain),
+                List.of(), List.of());
 
         Breakdown breakdown = engine.price(new Cart(List.of(
                 new CartLine("BEV-COLA-1500", 12),
@@ -193,7 +215,7 @@ class PricingPipelineOrderTest {
                                 usd("0.48"), usd("0.48"), usd("0.07")));
         assertThat(breakdown.totals()).isEqualTo(new Totals(usd("20.85"),
                 List.of(new Discount(Discount.Kind.COMBO, COMBO_RULE, usd("0.45")), tier(COLAS_RULE, "0.06")),
-                usd("20.34"), usd("3.05"), usd("23.39")));
+                List.of(), usd("20.34"), usd("3.05"), usd("23.39")));
     }
 
     @Test
@@ -226,7 +248,7 @@ class PricingPipelineOrderTest {
                         tuple("BEV-COLA-1500", usd("4.35"), usd("0.65")),
                         tuple("SNK-PLANTAIN-45", usd("0.55"), usd("0.08")));
         assertThat(breakdown.totals())
-                .isEqualTo(new Totals(usd("4.90"), List.of(), usd("4.90"), usd("0.73"), usd("5.63")));
+                .isEqualTo(new Totals(usd("4.90"), List.of(), List.of(), usd("4.90"), usd("0.73"), usd("5.63")));
         assertThat(breakdown.currency()).isEqualTo("USD");
     }
 
@@ -241,6 +263,99 @@ class PricingPipelineOrderTest {
                 .extracting(LineBreakdown::sku, LineBreakdown::taxableBase, LineBreakdown::tax)
                 .containsExactly(tuple("SNK-PLANTAIN-45", usd("1.10"), usd("0.17")));
         assertThat(breakdown.totals())
-                .isEqualTo(new Totals(usd("1.10"), List.of(), usd("1.10"), usd("0.17"), usd("1.27")));
+                .isEqualTo(new Totals(usd("1.10"), List.of(), List.of(), usd("1.10"), usd("0.17"), usd("1.27")));
+    }
+
+    @Test
+    void evaluatesGiftsOnThePaidUnitsBeforeAComboConsumesThem() {
+        // Step 1 counts the 3 paid colas 1500, so the rule "3 colas 1500 give a water" applies before
+        // the combo of step 2 consumes 2 of them with the plantain chips, 3.45 for 3.00, allocated 0.38
+        // and 0.07. Counted after the combo, the 1 cola left would not reach the 3 of the rule.
+        Breakdown breakdown = engine.price(new Cart(List.of(
+                new CartLine("BEV-COLA-1500", 3),
+                new CartLine("SNK-PLANTAIN-45", 1))), withGift(GiftTaxPolicy.EXEMPT, List.of(combo("3.00")),
+                new SkuQuantity("BEV-COLA-1500", 3), "BEV-WATER-600", 1));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::qty, LineBreakdown::isGift,
+                        LineBreakdown::comboAllocations)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", 3L, false, List.of(part("0.38"))),
+                        tuple("SNK-PLANTAIN-45", 1L, false, List.of(part("0.07"))),
+                        tuple("BEV-WATER-600", 1L, true, List.of()));
+        assertThat(breakdown.totals().gifts()).containsExactly(new Gift(GIFT_RULE, "BEV-WATER-600", 1));
+    }
+
+    @Test
+    void keepsAGiftOfAPaidSkuOnItsOwnLineAndOutOfTheTierCount() {
+        // 11 paid colas 350 earn one more cola 350. The gift is a line of its own after the paid line,
+        // and the tier step does not count its unit (A-04), so the 11 paid units stay below the 4%
+        // bracket. Merged with the paid line or counted, unit 12 would earn 0.60 x 4% = 0.024 -> 0.02.
+        Breakdown breakdown = engine.price(new Cart(List.of(new CartLine("BEV-COLA-350", 11))),
+                withGift(GiftTaxPolicy.EXEMPT, List.of(), new SkuQuantity("BEV-COLA-350", 11), "BEV-COLA-350", 1));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::qty, LineBreakdown::isGift, LineBreakdown::gross,
+                        LineBreakdown::discounts)
+                .containsExactly(
+                        tuple("BEV-COLA-350", 11L, false, usd("6.60"), List.of()),
+                        tuple("BEV-COLA-350", 1L, true, usd("0.00"), List.of()));
+        assertThat(breakdown.totals().discounts()).isEmpty();
+    }
+
+    @Test
+    void keepsGiftUnitsOutOfTheCombos() {
+        // The plantain chips earn one cola 1500. With the paid cola it would fill the combo of 2 colas
+        // 1500 and 1 plantain chips, but a combo consumes paid units only, so the combo does not apply.
+        // The gift line follows the paid lines, though its SKU sorts first.
+        Breakdown breakdown = engine.price(new Cart(List.of(
+                new CartLine("BEV-COLA-1500", 1),
+                new CartLine("SNK-PLANTAIN-45", 1))), withGift(GiftTaxPolicy.EXEMPT, List.of(combo("3.00")),
+                new SkuQuantity("SNK-PLANTAIN-45", 1), "BEV-COLA-1500", 1));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::qty, LineBreakdown::isGift,
+                        LineBreakdown::comboAllocations)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", 1L, false, List.of()),
+                        tuple("SNK-PLANTAIN-45", 1L, false, List.of()),
+                        tuple("BEV-COLA-1500", 1L, true, List.of()));
+        assertThat(breakdown.totals().discounts()).isEmpty();
+    }
+
+    @Test
+    void evaluatesAGrossSubtotalGiftOnTheGrossBeforeDiscounts() {
+        // 14 colas 1500 list at 20.30, which reaches the 20.30 of the rule. Step 3 then takes
+        // 3 x 1.45 x 4% = 0.174 -> 0.17 off the line: on the net of 20.13 the gift would not apply
+        // (A-10).
+        Breakdown breakdown = engine.price(new Cart(List.of(new CartLine("BEV-COLA-1500", 14))),
+                withGift(GiftTaxPolicy.EXEMPT, List.of(), new GrossSubtotal(usd("20.30")), "BEV-WATER-600", 1));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::isGift, LineBreakdown::discounts, LineBreakdown::net)
+                .containsExactly(
+                        tuple("BEV-COLA-1500", false, List.of(tier(COLAS_RULE, "0.17")), usd("20.13")),
+                        tuple("BEV-WATER-600", true, List.of(), usd("0.00")));
+    }
+
+    @Test
+    void taxesATaxedGiftOnItsOwnLineAndAddsOnlyItsTaxToTheTotal() {
+        // The plantain chips earn 3 waters 600, listed at 1.35. Under the TAXED policy step 5 makes the
+        // 1.35 the gift line's taxable base, and step 6 rounds its tax on its own: 0.2025 -> 0.20, next
+        // to 0.55 x 15% = 0.0825 -> 0.08 for the paid line. Taxed together, 1.90 x 15% = 0.285 would
+        // round to 0.29. Step 7 adds the taxes to the net, which only the paid line has:
+        // 0.55 + 0.28 = 0.83.
+        Breakdown breakdown = engine.price(new Cart(List.of(new CartLine("SNK-PLANTAIN-45", 1))),
+                withGift(GiftTaxPolicy.TAXED, List.of(), new SkuQuantity("SNK-PLANTAIN-45", 1), "BEV-WATER-600", 3));
+
+        assertThat(breakdown.lines())
+                .extracting(LineBreakdown::sku, LineBreakdown::gift, LineBreakdown::net, LineBreakdown::taxableBase,
+                        LineBreakdown::tax)
+                .containsExactly(
+                        tuple("SNK-PLANTAIN-45", Optional.empty(), usd("0.55"), usd("0.55"), usd("0.08")),
+                        tuple("BEV-WATER-600", Optional.of(new GiftReference(GIFT_RULE, usd("1.35"))), usd("0.00"),
+                                usd("1.35"), usd("0.20")));
+        assertThat(breakdown.totals()).isEqualTo(new Totals(usd("0.55"), List.of(),
+                List.of(new Gift(GIFT_RULE, "BEV-WATER-600", 3)), usd("1.90"), usd("0.28"), usd("0.83")));
     }
 }
