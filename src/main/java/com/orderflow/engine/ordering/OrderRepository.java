@@ -2,6 +2,7 @@ package com.orderflow.engine.ordering;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,4 +36,16 @@ public interface OrderRepository {
 
     /** Inserts the order of the quote with the next number of the tenant's country. A rollback leaves a gap. */
     PlacedOrder insert(String tenantId, UUID customerId, UUID quoteId, Instant confirmedAt);
+
+    /**
+     * The order with this id, only when it belongs to this tenant and this customer. An order of anyone else is not
+     * found, so its existence is never revealed (BD-01).
+     */
+    Optional<StoredOrder> find(String tenantId, UUID customerId, UUID orderId);
+
+    /**
+     * The newest orders of the customer, at most {@code limit} of them, newest first. Orders confirmed at the same
+     * instant are listed by their ids, the greater first, so a history always lists them the same way.
+     */
+    List<StoredOrder> history(String tenantId, UUID customerId, int limit);
 }
