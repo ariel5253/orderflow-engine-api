@@ -55,7 +55,7 @@ class PriceScaleValidationIT {
     void everySeededAmountFitsTheScaleOfItsCurrency() {
         assertThat(jdbc.sql("SELECT DISTINCT tenant_id FROM products ORDER BY tenant_id").query(String.class).list())
                 .as("tenants with seeded prices")
-                .containsExactly("co-alpha", "ec-alpha");
+                .containsExactly("co-alpha", "ec-alpha", "gt-alpha", "pe-alpha");
 
         assertThat(amountsAboveCurrencyScale()).as("seeded amounts above their currency scale").isEmpty();
     }

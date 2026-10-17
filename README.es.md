@@ -25,7 +25,7 @@ Para ejecutar el servicio con su propio PostgreSQL, solo desde este repositorio:
 docker compose up --build
 ```
 
-Liquibase crea el esquema cuando arranca el servicio y carga dos tenants: `co-alpha` (Colombia, COP, escala 0) y `ec-alpha` (Ecuador, USD, escala 2). Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
+Liquibase crea el esquema cuando arranca el servicio y carga cuatro tenants, uno por cada país de la prueba: `co-alpha` (Colombia, COP, escala 0), `ec-alpha` (Ecuador, USD, escala 2), `gt-alpha` (Guatemala, GTQ, escala 2) y `pe-alpha` (Perú, PEN, escala 2). Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
 
 Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre `pricing.domain` y exige que se detecte al menos el 80% de los fallos inyectados.
 

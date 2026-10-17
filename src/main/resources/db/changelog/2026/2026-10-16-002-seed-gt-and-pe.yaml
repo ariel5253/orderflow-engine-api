@@ -1,0 +1,163 @@
+# Seed data for Guatemala and Peru, the other two countries the assignment names (SPEC §5). They are added as data
+# only: this changelog, with no change to the engine or the API code, which is itself the proof that no currency,
+# scale, rate or rule is hard-coded. Names are written in the tenants' language, Spanish, from the start (SPEC §10.1).
+# Every amount fits the scale of its tenant's currency, which PriceScaleValidationIT checks (data model DM-01). Ids
+# are fixed UUIDv7 values in the range of the seeds, 7003 for gt-alpha and 7004 for pe-alpha. Each changeset rolls
+# back exactly what it adds, so the rollback of the whole changelog removes everything it added (LiquibaseRollbackIT).
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-16-002-seed-gt-and-pe.yaml
+
+  # Both currencies have two decimals in practice. The scale comes from here, never from java.util.Currency.
+  - changeSet:
+      id: seed-gt-and-pe-currencies
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO currencies (code, scale) VALUES
+                ('GTQ', 2),
+                ('PEN', 2)
+      rollback:
+        - sql:
+            sql: DELETE FROM currencies WHERE code IN ('GTQ', 'PEN')
+
+  # Guatemala does not tax gifts and Peru does, so both gift tax policies are exercised again. The quote TTL is
+  # 15 minutes (A-05).
+  - changeSet:
+      id: seed-gt-and-pe-countries
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO countries (code, currency_code, rounding_mode, gift_tax_policy, quote_ttl) VALUES
+                ('GT', 'GTQ', 'HALF_UP', 'EXEMPT', '15 minutes'),
+                ('PE', 'PEN', 'HALF_UP', 'TAXED',  '15 minutes')
+      rollback:
+        - sql:
+            sql: DELETE FROM countries WHERE code IN ('GT', 'PE')
+
+  # Order numbers come from one sequence per country, order_number_seq_ followed by the lower-case country code, which
+  # the order repository derives from the tenant's country. A new country therefore needs only its sequence.
+  - changeSet:
+      id: create-gt-and-pe-order-number-sequences
+      author: orderflow-engine
+      changes:
+        - createSequence: {sequenceName: order_number_seq_gt, startValue: 1, incrementBy: 1}
+        - createSequence: {sequenceName: order_number_seq_pe, startValue: 1, incrementBy: 1}
+      rollback:
+        - dropSequence: {sequenceName: order_number_seq_pe}
+        - dropSequence: {sequenceName: order_number_seq_gt}
+
+  - changeSet:
+      id: seed-gt-and-pe-tenants
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO tenants (id, country_code, brand) VALUES
+                ('gt-alpha', 'GT', 'alpha'),
+                ('pe-alpha', 'PE', 'alpha')
+      rollback:
+        - sql:
+            sql: DELETE FROM tenants WHERE id IN ('gt-alpha', 'pe-alpha')
+
+  # gt-alpha prices in GTQ with two decimals, every product at 12% tax. A tier rule on the 350 ml cola, and one water
+  # for every 12 colas of 350 ml, repeatable. Tienda Ciudad de Guatemala buys on credit, Tienda Quetzaltenango pays
+  # cash only.
+  - changeSet:
+      id: seed-gt-alpha
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO families (tenant_id, code) VALUES
+                ('gt-alpha', 'colas'),
+                ('gt-alpha', 'snacks'),
+                ('gt-alpha', 'waters');
+
+              INSERT INTO products (tenant_id, id, sku, name, family_code, tax_rate, list_price) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8002-000000000001', 'BEV-COLA-350',  'Gaseosa cola 350 ml', 'colas',  0.120000,  5.00),
+                ('gt-alpha', '01a13cdb-cc00-7003-8002-000000000002', 'BEV-COLA-1500', 'Gaseosa cola 1,5 l',  'colas',  0.120000, 15.00),
+                ('gt-alpha', '01a13cdb-cc00-7003-8002-000000000003', 'SNK-CHIPS-45',  'Papas fritas 45 g',   'snacks', 0.120000,  3.50),
+                ('gt-alpha', '01a13cdb-cc00-7003-8002-000000000004', 'BEV-WATER-600', 'Agua 600 ml',         'waters', 0.120000,  4.00);
+
+              INSERT INTO tier_rules (tenant_id, id, product_id, family_code, active) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8003-000000000001', '01a13cdb-cc00-7003-8002-000000000001', NULL, true);
+
+              INSERT INTO tier_brackets (tenant_id, tier_rule_id, from_qty, percent) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8003-000000000001',  1, 0.000000),
+                ('gt-alpha', '01a13cdb-cc00-7003-8003-000000000001', 12, 0.050000),
+                ('gt-alpha', '01a13cdb-cc00-7003-8003-000000000001', 24, 0.100000);
+
+              INSERT INTO gift_rules
+                (tenant_id, id, trigger_product_id, trigger_family_code, min_qty, min_gross,
+                 gift_product_id, gift_qty, repeatable, active) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8005-000000000001', '01a13cdb-cc00-7003-8002-000000000001', NULL, 12, NULL,
+                 '01a13cdb-cc00-7003-8002-000000000004', 1, true, true);
+
+              INSERT INTO customers (tenant_id, id, name) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8001-000000000001', 'Tienda Ciudad de Guatemala'),
+                ('gt-alpha', '01a13cdb-cc00-7003-8001-000000000002', 'Tienda Quetzaltenango');
+
+              INSERT INTO credit_accounts (tenant_id, customer_id, credit_limit, consumed) VALUES
+                ('gt-alpha', '01a13cdb-cc00-7003-8001-000000000001', 5000.00, 0)
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM credit_accounts WHERE tenant_id = 'gt-alpha';
+              DELETE FROM customers WHERE tenant_id = 'gt-alpha';
+              DELETE FROM gift_rules WHERE tenant_id = 'gt-alpha';
+              DELETE FROM tier_brackets WHERE tenant_id = 'gt-alpha';
+              DELETE FROM tier_rules WHERE tenant_id = 'gt-alpha';
+              DELETE FROM products WHERE tenant_id = 'gt-alpha';
+              DELETE FROM families WHERE tenant_id = 'gt-alpha'
+
+  # pe-alpha prices in PEN with two decimals, every product at 18% tax. A combo of 2 colas of 350 ml and 1 chips, and
+  # one water for a gross subtotal from 100.00, not repeatable. Tienda Lima buys on credit, Tienda Arequipa pays cash
+  # only.
+  - changeSet:
+      id: seed-pe-alpha
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO families (tenant_id, code) VALUES
+                ('pe-alpha', 'colas'),
+                ('pe-alpha', 'snacks'),
+                ('pe-alpha', 'waters');
+
+              INSERT INTO products (tenant_id, id, sku, name, family_code, tax_rate, list_price) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8002-000000000001', 'BEV-COLA-350',  'Gaseosa cola 350 ml', 'colas',  0.180000, 2.50),
+                ('pe-alpha', '01a13cdb-cc00-7004-8002-000000000002', 'BEV-COLA-1500', 'Gaseosa cola 1,5 l',  'colas',  0.180000, 7.50),
+                ('pe-alpha', '01a13cdb-cc00-7004-8002-000000000003', 'SNK-CHIPS-45',  'Papas fritas 45 g',   'snacks', 0.180000, 1.80),
+                ('pe-alpha', '01a13cdb-cc00-7004-8002-000000000004', 'BEV-WATER-600', 'Agua 600 ml',         'waters', 0.180000, 2.00);
+
+              INSERT INTO combo_rules (tenant_id, id, combo_price, active) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8004-000000000001', 6.00, true);
+
+              INSERT INTO combo_items (tenant_id, combo_rule_id, product_id, min_qty) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8004-000000000001', '01a13cdb-cc00-7004-8002-000000000001', 2),
+                ('pe-alpha', '01a13cdb-cc00-7004-8004-000000000001', '01a13cdb-cc00-7004-8002-000000000003', 1);
+
+              INSERT INTO gift_rules
+                (tenant_id, id, trigger_product_id, trigger_family_code, min_qty, min_gross,
+                 gift_product_id, gift_qty, repeatable, active) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8005-000000000001', NULL, NULL, NULL, 100.00,
+                 '01a13cdb-cc00-7004-8002-000000000004', 1, false, true);
+
+              INSERT INTO customers (tenant_id, id, name) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8001-000000000001', 'Tienda Lima'),
+                ('pe-alpha', '01a13cdb-cc00-7004-8001-000000000002', 'Tienda Arequipa');
+
+              INSERT INTO credit_accounts (tenant_id, customer_id, credit_limit, consumed) VALUES
+                ('pe-alpha', '01a13cdb-cc00-7004-8001-000000000001', 2000.00, 0)
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM credit_accounts WHERE tenant_id = 'pe-alpha';
+              DELETE FROM customers WHERE tenant_id = 'pe-alpha';
+              DELETE FROM gift_rules WHERE tenant_id = 'pe-alpha';
+              DELETE FROM combo_items WHERE tenant_id = 'pe-alpha';
+              DELETE FROM combo_rules WHERE tenant_id = 'pe-alpha';
+              DELETE FROM products WHERE tenant_id = 'pe-alpha';
+              DELETE FROM families WHERE tenant_id = 'pe-alpha'

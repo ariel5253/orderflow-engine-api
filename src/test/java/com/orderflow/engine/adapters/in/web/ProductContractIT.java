@@ -5,6 +5,12 @@ import static com.orderflow.engine.quoting.QuoteTestData.CO_CASH_CUSTOMER;
 import static com.orderflow.engine.quoting.QuoteTestData.CO_CREDIT_CUSTOMER;
 import static com.orderflow.engine.quoting.QuoteTestData.EC;
 import static com.orderflow.engine.quoting.QuoteTestData.EC_CASH_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.GT;
+import static com.orderflow.engine.quoting.QuoteTestData.GT_CASH_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.GT_CREDIT_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.PE;
+import static com.orderflow.engine.quoting.QuoteTestData.PE_CASH_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.PE_CREDIT_CUSTOMER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
@@ -33,8 +39,9 @@ import tools.jackson.databind.json.JsonMapper;
  * SKU, its name as the description, its list price as a string at the currency scale and its tax rate as a string,
  * with the currency once per body and no lever, family, product id or credit data. Its headers are checked as E-01
  * checks them, and no answer carries a CORS header, because the web client reaches the API through its own origin
- * (architecture section 1.1). The expected values are those of the seed changelogs: the seeds, and the renaming of
- * their names into the tenants' language. Every test runs in a transaction that is rolled back.
+ * (architecture section 1.1). The expected values are those of the seed changelogs: the Colombia and Ecuador seeds with
+ * the renaming of their names into the tenants' language, and the Guatemala and Peru seeds, written in that language
+ * from the start. Every test runs in a transaction that is rolled back.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -85,6 +92,33 @@ class ProductContractIT {
                {"sku": "SNK-PLANTAIN-45", "description": "Chifles 45 g", "listPrice": "0.55", "taxRate": "0.150000"}
              ]}""";
 
+    /**
+     * The four gt-alpha products of the seeds, in SKU order. GTQ has scale 2, so every price keeps its trailing zeros:
+     * 15.00, 5.00 and 4.00 are never sent as 15, 5 or 4.
+     */
+    private static final String GT_PRODUCTS = """
+            {"currency": "GTQ",
+             "items": [
+               {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "listPrice": "15.00",
+                "taxRate": "0.120000"},
+               {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "listPrice": "5.00",
+                "taxRate": "0.120000"},
+               {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "listPrice": "4.00", "taxRate": "0.120000"},
+               {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "listPrice": "3.50", "taxRate": "0.120000"}
+             ]}""";
+
+    /** The four pe-alpha products of the seeds, in SKU order. PEN has scale 2, so 2.50, 2.00 and 1.80 keep theirs. */
+    private static final String PE_PRODUCTS = """
+            {"currency": "PEN",
+             "items": [
+               {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "listPrice": "7.50",
+                "taxRate": "0.180000"},
+               {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "listPrice": "2.50",
+                "taxRate": "0.180000"},
+               {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "listPrice": "2.00", "taxRate": "0.180000"},
+               {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "listPrice": "1.80", "taxRate": "0.180000"}
+             ]}""";
+
     @Autowired
     private MockMvcTester mvc;
 
@@ -108,6 +142,35 @@ class ProductContractIT {
         assertThat(body.propertyNames()).containsExactlyElementsOf(BODY_FIELDS);
         assertThat(body).isEqualTo(JSON.readTree(EC_PRODUCTS));
         assertThat(skus(body)).as("SKUs of ec-alpha").doesNotContain("SNK-CHIPS-45");
+    }
+
+    @Test
+    void gtAlphaListsQuetzalesAtScaleTwoWithTrailingZerosKept() {
+        MvcTestResult result = list(GT, GT_CREDIT_CUSTOMER.toString());
+
+        assertThat(result).hasStatus(HttpStatus.OK).hasContentType(MediaType.APPLICATION_JSON);
+        JsonNode body = body(result);
+        assertThat(body.propertyNames()).containsExactlyElementsOf(BODY_FIELDS);
+        body.required("items").forEach(item -> assertThat(item.propertyNames()).containsExactlyElementsOf(ITEM_FIELDS));
+        assertThat(body).isEqualTo(JSON.readTree(GT_PRODUCTS));
+        assertThat(body(list(GT, GT_CASH_CUSTOMER.toString()))).isEqualTo(JSON.readTree(GT_PRODUCTS));
+    }
+
+    @Test
+    void peAlphaListsSolesAtScaleTwoWithTrailingZerosKept() {
+        MvcTestResult result = list(PE, PE_CREDIT_CUSTOMER.toString());
+
+        assertThat(result).hasStatus(HttpStatus.OK).hasContentType(MediaType.APPLICATION_JSON);
+        JsonNode body = body(result);
+        assertThat(body.propertyNames()).containsExactlyElementsOf(BODY_FIELDS);
+        body.required("items").forEach(item -> assertThat(item.propertyNames()).containsExactlyElementsOf(ITEM_FIELDS));
+        assertThat(body).isEqualTo(JSON.readTree(PE_PRODUCTS));
+        assertThat(body(list(PE, PE_CASH_CUSTOMER.toString()))).isEqualTo(JSON.readTree(PE_PRODUCTS));
+    }
+
+    @Test
+    void aCustomerOfGuatemalaIsNotACustomerOfPeru() {
+        assertProblem(list(PE, GT_CREDIT_CUSTOMER.toString()), HttpStatus.NOT_FOUND, "CUSTOMER_NOT_FOUND");
     }
 
     @Test

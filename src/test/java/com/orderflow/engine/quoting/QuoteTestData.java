@@ -9,11 +9,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** Seeded ids and sealed quotes shared by the quote tests. The ids are those of the seed changelog. */
+/** Seeded ids and sealed quotes shared by the quote tests. The ids are those of the seed changelogs. */
 public final class QuoteTestData {
 
     public static final String CO = "co-alpha";
     public static final String EC = "ec-alpha";
+    public static final String GT = "gt-alpha";
+    public static final String PE = "pe-alpha";
 
     /** The co-alpha customer with a 500,000 COP credit account and nothing consumed. */
     public static final UUID CO_CREDIT_CUSTOMER = UUID.fromString("01a13cdb-cc00-7001-8001-000000000001");
@@ -23,6 +25,14 @@ public final class QuoteTestData {
     public static final UUID EC_CREDIT_CUSTOMER = UUID.fromString("01a13cdb-cc00-7002-8001-000000000001");
     /** The ec-alpha customer that pays cash only. */
     public static final UUID EC_CASH_CUSTOMER = UUID.fromString("01a13cdb-cc00-7002-8001-000000000002");
+    /** The gt-alpha customer with a 5,000.00 GTQ credit account. */
+    public static final UUID GT_CREDIT_CUSTOMER = UUID.fromString("01a13cdb-cc00-7003-8001-000000000001");
+    /** The gt-alpha customer that pays cash only. */
+    public static final UUID GT_CASH_CUSTOMER = UUID.fromString("01a13cdb-cc00-7003-8001-000000000002");
+    /** The pe-alpha customer with a 2,000.00 PEN credit account. */
+    public static final UUID PE_CREDIT_CUSTOMER = UUID.fromString("01a13cdb-cc00-7004-8001-000000000001");
+    /** The pe-alpha customer that pays cash only. */
+    public static final UUID PE_CASH_CUSTOMER = UUID.fromString("01a13cdb-cc00-7004-8001-000000000002");
 
     public static final UUID CO_TIER_RULE = UUID.fromString("01a13cdb-cc00-7001-8003-000000000001");
     public static final UUID CO_COMBO_RULE = UUID.fromString("01a13cdb-cc00-7001-8004-000000000001");
