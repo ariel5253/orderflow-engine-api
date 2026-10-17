@@ -1,0 +1,58 @@
+# Product descriptions and store names are tenant data, written in the tenant's language and shown as received
+# (SPEC §10.1). Both seeded tenants sell in Spanish, but the seeds named their rows in English. An applied changeset
+# is never edited, so this changelog renames the seeded rows instead: products by tenant and SKU, customers by tenant
+# and id. Its rollback restores the names the seeds inserted, exactly, which LiquibaseRollbackIT checks.
+databaseChangeLog:
+  - logicalFilePath: db/changelog/2026/2026-10-16-001-seed-names-in-spanish.yaml
+
+  - changeSet:
+      id: seed-names-in-spanish
+      author: orderflow-engine
+      changes:
+        - sql:
+            sql: |
+              UPDATE products AS p SET name = v.name
+              FROM (VALUES
+                ('co-alpha', 'BEV-COLA-350',    'Gaseosa cola 350 ml'),
+                ('co-alpha', 'BEV-COLA-1500',   'Gaseosa cola 1,5 l'),
+                ('co-alpha', 'SNK-CHIPS-45',    'Papas fritas 45 g'),
+                ('co-alpha', 'BEV-WATER-600',   'Agua 600 ml'),
+                ('ec-alpha', 'BEV-COLA-350',    'Gaseosa cola 350 ml'),
+                ('ec-alpha', 'BEV-COLA-1500',   'Gaseosa cola 1,5 l'),
+                ('ec-alpha', 'SNK-PLANTAIN-45', 'Chifles 45 g'),
+                ('ec-alpha', 'BEV-WATER-600',   'Agua 600 ml')
+              ) AS v (tenant_id, sku, name)
+              WHERE p.tenant_id = v.tenant_id AND p.sku = v.sku;
+
+              UPDATE customers AS c SET name = v.name
+              FROM (VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000001', 'Tienda Norte'),
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000002', 'Tienda Sur'),
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000001', 'Tienda Quito'),
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000002', 'Tienda Guayaquil')
+              ) AS v (tenant_id, id, name)
+              WHERE c.tenant_id = v.tenant_id AND c.id = CAST(v.id AS uuid)
+      rollback:
+        - sql:
+            sql: |
+              UPDATE products AS p SET name = v.name
+              FROM (VALUES
+                ('co-alpha', 'BEV-COLA-350',    'Cola 350 ml'),
+                ('co-alpha', 'BEV-COLA-1500',   'Cola 1.5 l'),
+                ('co-alpha', 'SNK-CHIPS-45',    'Chips 45 g'),
+                ('co-alpha', 'BEV-WATER-600',   'Water 600 ml'),
+                ('ec-alpha', 'BEV-COLA-350',    'Cola 350 ml'),
+                ('ec-alpha', 'BEV-COLA-1500',   'Cola 1.5 l'),
+                ('ec-alpha', 'SNK-PLANTAIN-45', 'Plantain chips 45 g'),
+                ('ec-alpha', 'BEV-WATER-600',   'Water 600 ml')
+              ) AS v (tenant_id, sku, name)
+              WHERE p.tenant_id = v.tenant_id AND p.sku = v.sku;
+
+              UPDATE customers AS c SET name = v.name
+              FROM (VALUES
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000001', 'North Corner Shop'),
+                ('co-alpha', '01a13cdb-cc00-7001-8001-000000000002', 'South Corner Shop'),
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000001', 'Quito Corner Shop'),
+                ('ec-alpha', '01a13cdb-cc00-7002-8001-000000000002', 'Guayaquil Corner Shop')
+              ) AS v (tenant_id, id, name)
+              WHERE c.tenant_id = v.tenant_id AND c.id = CAST(v.id AS uuid)

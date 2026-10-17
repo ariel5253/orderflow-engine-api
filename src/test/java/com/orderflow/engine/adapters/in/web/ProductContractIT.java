@@ -33,8 +33,8 @@ import tools.jackson.databind.json.JsonMapper;
  * SKU, its name as the description, its list price as a string at the currency scale and its tax rate as a string,
  * with the currency once per body and no lever, family, product id or credit data. Its headers are checked as E-01
  * checks them, and no answer carries a CORS header, because the web client reaches the API through its own origin
- * (architecture section 1.1). The expected values are those of the seed changelog. Every test runs in a transaction
- * that is rolled back.
+ * (architecture section 1.1). The expected values are those of the seed changelogs: the seeds, and the renaming of
+ * their names into the tenants' language. Every test runs in a transaction that is rolled back.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -62,24 +62,27 @@ class ProductContractIT {
     private static final String CO_PRODUCTS = """
             {"currency": "COP",
              "items": [
-               {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "listPrice": "5200", "taxRate": "0.190000"},
-               {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "listPrice": "2500", "taxRate": "0.190000"},
-               {"sku": "BEV-WATER-600", "description": "Water 600 ml", "listPrice": "1500", "taxRate": "0.190000"},
-               {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "listPrice": "1800", "taxRate": "0.050000"}
+               {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "listPrice": "5200",
+                "taxRate": "0.190000"},
+               {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "listPrice": "2500",
+                "taxRate": "0.190000"},
+               {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "listPrice": "1500", "taxRate": "0.190000"},
+               {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "listPrice": "1800", "taxRate": "0.050000"}
              ]}""";
 
     /**
      * The four ec-alpha products of the seeds, in SKU order. USD has scale 2, so 0.60 keeps its trailing zero. The
-     * colas and the water share their SKUs with co-alpha, but not their names, prices or rates of tax.
+     * colas and the water share their SKUs and names with co-alpha, but not their prices or rates of tax.
      */
     private static final String EC_PRODUCTS = """
             {"currency": "USD",
              "items": [
-               {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "listPrice": "1.45", "taxRate": "0.150000"},
-               {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "listPrice": "0.60", "taxRate": "0.150000"},
-               {"sku": "BEV-WATER-600", "description": "Water 600 ml", "listPrice": "0.45", "taxRate": "0.150000"},
-               {"sku": "SNK-PLANTAIN-45", "description": "Plantain chips 45 g", "listPrice": "0.55",
-                "taxRate": "0.150000"}
+               {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "listPrice": "1.45",
+                "taxRate": "0.150000"},
+               {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "listPrice": "0.60",
+                "taxRate": "0.150000"},
+               {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "listPrice": "0.45", "taxRate": "0.150000"},
+               {"sku": "SNK-PLANTAIN-45", "description": "Chifles 45 g", "listPrice": "0.55", "taxRate": "0.150000"}
              ]}""";
 
     @Autowired

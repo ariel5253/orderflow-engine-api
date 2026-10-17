@@ -39,10 +39,10 @@ public final class OrderTestSupport {
     /** The lines of {@link #CO_CART} as a quote and its order render them, in SKU order. */
     public static final String CO_CART_LINES = """
             [
-              {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "qty": 3, "isGift": false,
+              {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "qty": 3, "isGift": false,
                "unitPrice": "5200", "gross": "15600", "discounts": [], "comboAllocations": [],
                "net": "15600", "taxableBase": "15600", "taxRate": "0.190000", "tax": "2964"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 2, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 2, "isGift": false,
                "unitPrice": "1800", "gross": "3600", "discounts": [], "comboAllocations": [],
                "net": "3600", "taxableBase": "3600", "taxRate": "0.050000", "tax": "180"}
             ]""";
