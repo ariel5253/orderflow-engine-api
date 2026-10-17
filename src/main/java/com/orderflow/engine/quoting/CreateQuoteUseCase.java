@@ -4,7 +4,6 @@ import com.orderflow.engine.pricing.domain.Breakdown;
 import com.orderflow.engine.pricing.domain.Cart;
 import com.orderflow.engine.pricing.domain.CartLine;
 import com.orderflow.engine.pricing.domain.CartNormalizer;
-import com.orderflow.engine.pricing.domain.CartRejectedException;
 import com.orderflow.engine.pricing.domain.LineBreakdown;
 import com.orderflow.engine.pricing.domain.LineBreakdown.GiftReference;
 import com.orderflow.engine.pricing.domain.PricingEngine;
@@ -29,12 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class CreateQuoteUseCase {
 
-    /**
-     * A quote line stores its quantity as a 32-bit integer (data model §4), so a larger quantity is rejected as input
-     * instead of failing when the line is written.
-     */
-    private static final long MAX_LINE_QTY = Integer.MAX_VALUE;
-
     private final SnapshotProvider snapshots;
     private final CreditAdvisor creditAdvisor;
     private final QuoteRepository quotes;
@@ -52,8 +45,9 @@ public class CreateQuoteUseCase {
 
     @Transactional
     public QuoteView create(String tenantId, UUID customerId, PaymentMethod paymentMethod, Cart cart) {
+        // The bound of BR-00 on every line and gift quantity keeps each within the 32-bit column of a quote line (data
+        // model §4), so no quantity fails when the quote is written.
         Cart normalized = CartNormalizer.normalize(cart);
-        requireStorableQuantities(normalized);
         TenantPolicy policy = snapshots.tenantPolicy(tenantId).orElseThrow(() -> new QuoteRejectedException(
                 Code.TENANT_NOT_FOUND, "Tenant '" + tenantId + "' does not exist"));
         if (!snapshots.customerExists(tenantId, customerId)) {
@@ -76,15 +70,6 @@ public class CreateQuoteUseCase {
         StoredQuote stored = quotes.find(tenantId, customerId, quoteId).orElseThrow();
         QuoteStatus status = QuoteStatus.of(stored.confirmed(), stored.sealed().expiresAt(), createdAt);
         return QuoteView.render(stored, status).withCredit(credit);
-    }
-
-    private static void requireStorableQuantities(Cart normalized) {
-        for (CartLine line : normalized.lines()) {
-            if (line.qty() > MAX_LINE_QTY) {
-                throw new CartRejectedException(CartRejectedException.Code.INVALID_QUANTITY,
-                        "SKU '" + line.sku() + "' has a quantity above " + MAX_LINE_QTY);
-            }
-        }
     }
 
     /**

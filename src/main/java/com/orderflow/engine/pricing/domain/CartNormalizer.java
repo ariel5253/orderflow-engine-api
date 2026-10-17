@@ -7,12 +7,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Normalizes a cart before it is priced (SPEC BR-00). It rejects an empty cart and any line whose
- * quantity is below one, merges the lines of a repeated SKU by adding their quantities, and sorts
- * the lines by SKU code. The engine prices only the normalized cart, so a breakdown never depends
+ * Normalizes a cart before it is priced (SPEC BR-00). It rejects an empty cart and any quantity outside 1 to
+ * {@link #MAX_QTY}, merges the lines of a repeated SKU by adding their quantities, applies the same bound to the merged
+ * quantity, and sorts the lines by SKU code. The engine prices only the normalized cart, so a breakdown never depends
  * on the order of the client's lines. Normalizing a normalized cart returns an equal cart.
  */
 public final class CartNormalizer {
+
+    /**
+     * The largest quantity of a line, also after the lines of a repeated SKU are merged, and of a gift a rule derives
+     * (SPEC BR-00). A quote line stores its quantity as a 32-bit integer (data model §4), which every quantity within
+     * this bound fits.
+     */
+    public static final long MAX_QTY = 1_000_000L;
 
     private CartNormalizer() {
     }
@@ -27,26 +34,22 @@ public final class CartNormalizer {
                 .toList();
         Map<String, Long> qtyBySku = new LinkedHashMap<>();
         for (CartLine line : bySku) {
-            // Each line is checked before it is merged, so a larger line of the same SKU cannot
-            // hide it.
-            if (line.qty() <= 0) {
-                throw new CartRejectedException(Code.INVALID_QUANTITY,
-                        "SKU '" + line.sku() + "' has a quantity below one");
-            }
+            // Each line is checked before it is merged, so a larger line of the same SKU cannot hide a line below
+            // one. Both terms of a sum are then within the bound, so the sum cannot overflow before it is checked.
+            requireWithinBound(line.sku(), line.qty());
             qtyBySku.merge(line.sku(), line.qty(),
-                    (merged, added) -> add(line.sku(), merged, added));
+                    (merged, added) -> requireWithinBound(line.sku(), merged + added));
         }
         return new Cart(qtyBySku.entrySet().stream()
                 .map(entry -> new CartLine(entry.getKey(), entry.getValue()))
                 .toList());
     }
 
-    private static long add(String sku, long merged, long added) {
-        try {
-            return Math.addExact(merged, added);
-        } catch (ArithmeticException overflow) {
+    private static long requireWithinBound(String sku, long qty) {
+        if (qty < 1 || qty > MAX_QTY) {
             throw new CartRejectedException(Code.INVALID_QUANTITY,
-                    "The merged quantity of SKU '" + sku + "' does not fit a long");
+                    "SKU '" + sku + "' has a quantity outside 1 to " + MAX_QTY + ": " + qty);
         }
+        return qty;
     }
 }

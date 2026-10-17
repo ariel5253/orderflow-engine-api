@@ -1,7 +1,10 @@
 package com.orderflow.engine.pricing.domain.lever;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.orderflow.engine.pricing.domain.CartRejectedException;
+import com.orderflow.engine.pricing.domain.CartRejectedException.Code;
 import com.orderflow.engine.pricing.domain.CurrencyPolicy;
 import com.orderflow.engine.pricing.domain.Gift;
 import com.orderflow.engine.pricing.domain.Money;
@@ -15,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -22,7 +26,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 /**
  * SPEC BR-04, step 1 of BR-01: a gift rule is evaluated on the paid units and on their gross before
  * discounts. It applies once for each whole multiple of its condition when it is repeatable, at most
- * once otherwise, and the gifts come in rule-id order.
+ * once otherwise, and the gifts come in rule-id order. A gift quantity above 1,000,000 is rejected
+ * as BR-00 rejects a line quantity, and deriving it never overflows.
  */
 class GiftStepTest {
 
@@ -118,6 +123,57 @@ class GiftStepTest {
         assertThat(GiftStep.apply(List.of(waterRule(new SkuQuantity("BEV-TEA-500", 1), 1, true)), paid)).isEmpty();
     }
 
+    @ParameterizedTest(name = "{0} applications of {1} waters")
+    @CsvSource({"1000000, 1", "500000, 2", "1, 1000000"})
+    void grantsAGiftOfExactlyTheBound(long chips, long giftQty) {
+        List<Gift> gifts = GiftStep.apply(List.of(waterRule(new SkuQuantity("SNK-CHIPS-45", 1), giftQty, true)),
+                List.of(new Units(CHIPS, chips)));
+
+        assertThat(gifts).containsExactly(waters(1_000_000L));
+    }
+
+    @Test
+    void rejectsAGiftAboveTheBoundThatLinesWithinTheBoundDerive() {
+        // Each cola line holds at most the bound, but the family counts 600,000 + 400,001 units, one gift each.
+        List<Units> paid = List.of(new Units(COLA_1500, 400_001), new Units(COLA, 600_000));
+
+        assertGiftRejected(() -> GiftStep.apply(List.of(waterRule(new FamilyQuantity("colas", 1), 1, true)), paid));
+    }
+
+    @Test
+    void rejectsARepeatableGiftThatTheMultiplesPushAboveTheBound() {
+        // 500,001 applications of 2 waters are 1,000,002 waters.
+        assertGiftRejected(() -> GiftStep.apply(List.of(waterRule(new SkuQuantity("SNK-CHIPS-45", 1), 2, true)),
+                List.of(new Units(CHIPS, 500_001))));
+    }
+
+    @Test
+    void rejectsANonRepeatableGiftWhoseOwnQuantityIsAboveTheBound() {
+        assertGiftRejected(() -> GiftStep.apply(
+                List.of(waterRule(new SkuQuantity("SNK-CHIPS-45", 1), 1_000_001L, false)),
+                List.of(new Units(CHIPS, 1))));
+    }
+
+    @Test
+    void rejectsAGiftQuantityThatDoesNotFitALongInsteadOfOverflowing() {
+        // Two applications of Long.MAX_VALUE waters would wrap around to a negative quantity.
+        assertGiftRejected(() -> GiftStep.apply(
+                List.of(waterRule(new SkuQuantity("SNK-CHIPS-45", 1), Long.MAX_VALUE, true)),
+                List.of(new Units(CHIPS, 2))));
+    }
+
+    @Test
+    void countsTheMultiplesOfAGrossSubtotalThatDoNotFitALongWithoutFailing() {
+        // A million units at 999,999,999,999,999 hold about 10^21 multiples of a gross of 1, more than a long holds:
+        // a repeatable rule derives a gift above the bound, and a rule that does not repeat still gives its gift once.
+        Product costly = product("BEV-COLA-1500", "colas", "999999999999999", "0.190000");
+        List<Units> paid = List.of(new Units(costly, 1_000_000));
+        GrossSubtotal fromOne = new GrossSubtotal(new Money(BigDecimal.ONE, COP));
+
+        assertGiftRejected(() -> GiftStep.apply(List.of(waterRule(fromOne, 1, true)), paid));
+        assertThat(GiftStep.apply(List.of(waterRule(fromOne, 1, false)), paid)).containsExactly(waters(1));
+    }
+
     @Test
     void listsTheGiftsInRuleIdOrder() {
         // Both rules apply to 20 chips. The late rule is listed first, but its id sorts second.
@@ -127,5 +183,13 @@ class GiftStepTest {
         List<Gift> gifts = GiftStep.apply(List.of(late, snacks), List.of(new Units(CHIPS, 20)));
 
         assertThat(gifts).containsExactly(waters(2), new Gift(LATE_GIFT, "BEV-COLA-350", 1));
+    }
+
+    // The rejection is the one of BR-00, and its log message names the rule.
+    private static void assertGiftRejected(ThrowingCallable apply) {
+        assertThatExceptionOfType(CartRejectedException.class)
+                .isThrownBy(apply)
+                .satisfies(rejection -> assertThat(rejection.code()).isEqualTo(Code.INVALID_QUANTITY))
+                .withMessageContaining(SNACKS_GIFT.toString());
     }
 }

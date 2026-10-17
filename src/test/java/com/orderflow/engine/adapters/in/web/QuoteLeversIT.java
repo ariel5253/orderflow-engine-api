@@ -5,6 +5,10 @@ import static com.orderflow.engine.quoting.QuoteTestData.CO_CASH_CUSTOMER;
 import static com.orderflow.engine.quoting.QuoteTestData.CO_CREDIT_CUSTOMER;
 import static com.orderflow.engine.quoting.QuoteTestData.EC;
 import static com.orderflow.engine.quoting.QuoteTestData.EC_CASH_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.GT;
+import static com.orderflow.engine.quoting.QuoteTestData.GT_CREDIT_CUSTOMER;
+import static com.orderflow.engine.quoting.QuoteTestData.PE;
+import static com.orderflow.engine.quoting.QuoteTestData.PE_CASH_CUSTOMER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
@@ -35,7 +39,8 @@ import tools.jackson.databind.json.JsonMapper;
  * and BR-03, or are computed by hand in this class from the seed changelog: in co-alpha, the 350 ml cola lists at
  * 2,500 with 19% tax, the chips at 1,800 with 5% and the water at 1,500 with 19%; its tier rule on the 350 ml cola
  * gives 5% from unit 10 and 10% from unit 20; its combo sells 2 colas and 1 chips for 5,000; and one water is given
- * for every 10 snacks, taxed because Colombia taxes gifts. Every test runs in a transaction that is rolled back.
+ * for every 10 snacks, taxed because Colombia taxes gifts. The Ecuador, Guatemala and Peru tests state the seed values
+ * they compute from. Every test runs in a transaction that is rolled back.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -55,6 +60,10 @@ class QuoteLeversIT {
     private static final String CO_GIFT = "01a13cdb-cc00-7001-8005-000000000001";
     private static final String EC_TIER = "01a13cdb-cc00-7002-8003-000000000001";
     private static final String EC_GIFT = "01a13cdb-cc00-7002-8005-000000000001";
+    private static final String GT_TIER = "01a13cdb-cc00-7003-8003-000000000001";
+    private static final String GT_GIFT = "01a13cdb-cc00-7003-8005-000000000001";
+    private static final String PE_COMBO = "01a13cdb-cc00-7004-8004-000000000001";
+    private static final String PE_GIFT = "01a13cdb-cc00-7004-8005-000000000001";
 
     /** 30 colas of 350 ml and 10 chips: a cart that every lever of co-alpha prices. */
     private static final String EVERY_LEVER_CART = """
@@ -72,16 +81,16 @@ class QuoteLeversIT {
      */
     private static final String EVERY_LEVER_LINES = """
             [
-              {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 30, "isGift": false,
+              {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 30, "isGift": false,
                "unitPrice": "2500", "gross": "75000",
                "discounts": [{"origin": "TIER:%1$s", "amount": "125"}],
                "comboAllocations": [{"comboId": "%2$s", "amount": "13235"}],
                "net": "61640", "taxableBase": "61640", "taxRate": "0.190000", "tax": "11712"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 10, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 10, "isGift": false,
                "unitPrice": "1800", "gross": "18000", "discounts": [],
                "comboAllocations": [{"comboId": "%2$s", "amount": "4765"}],
                "net": "13235", "taxableBase": "13235", "taxRate": "0.050000", "tax": "662"},
-              {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 1, "isGift": true,
+              {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 1, "isGift": true,
                "origin": "GIFT:%3$s",
                "unitPrice": "0", "gross": "0", "discounts": [], "comboAllocations": [],
                "net": "0", "referenceValue": "1500", "taxableBase": "1500", "taxRate": "0.190000", "tax": "285"}
@@ -100,10 +109,10 @@ class QuoteLeversIT {
      */
     private static final String EVERY_LEVER_LINES_WITHOUT_LEVERS = """
             [
-              {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 30, "isGift": false,
+              {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 30, "isGift": false,
                "unitPrice": "2500", "gross": "75000", "discounts": [], "comboAllocations": [],
                "net": "75000", "taxableBase": "75000", "taxRate": "0.190000", "tax": "14250"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 10, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 10, "isGift": false,
                "unitPrice": "1900", "gross": "19000", "discounts": [], "comboAllocations": [],
                "net": "19000", "taxableBase": "19000", "taxRate": "0.050000", "tax": "950"}
             ]""";
@@ -132,7 +141,7 @@ class QuoteLeversIT {
 
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
-                [{"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 25, "isGift": false,
+                [{"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 25, "isGift": false,
                   "unitPrice": "2500", "gross": "62500",
                   "discounts": [{"origin": "TIER:%s", "amount": "2750"}],
                   "comboAllocations": [],
@@ -166,11 +175,11 @@ class QuoteLeversIT {
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 4, "isGift": false,
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 4, "isGift": false,
                    "unitPrice": "2500", "gross": "10000", "discounts": [],
                    "comboAllocations": [{"comboId": "%1$s", "amount": "2647"}],
                    "net": "7353", "taxableBase": "7353", "taxRate": "0.190000", "tax": "1397"},
-                  {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 2, "isGift": false,
+                  {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 2, "isGift": false,
                    "unitPrice": "1800", "gross": "3600", "discounts": [],
                    "comboAllocations": [{"comboId": "%1$s", "amount": "953"}],
                    "net": "2647", "taxableBase": "2647", "taxRate": "0.050000", "tax": "132"}
@@ -199,10 +208,10 @@ class QuoteLeversIT {
         JsonNode body = createdBody(created);
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 20, "isGift": false,
+                  {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 20, "isGift": false,
                    "unitPrice": "1800", "gross": "36000", "discounts": [], "comboAllocations": [],
                    "net": "36000", "taxableBase": "36000", "taxRate": "0.050000", "tax": "1800"},
-                  {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 2, "isGift": true,
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 2, "isGift": true,
                    "origin": "GIFT:%s",
                    "unitPrice": "0", "gross": "0", "discounts": [], "comboAllocations": [],
                    "net": "0", "referenceValue": "3000", "taxableBase": "3000", "taxRate": "0.190000", "tax": "570"}
@@ -234,15 +243,15 @@ class QuoteLeversIT {
         assertThat(body.required("currency").stringValue()).isEqualTo("USD");
         assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
                 [
-                  {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "qty": 30, "isGift": false,
+                  {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "qty": 30, "isGift": false,
                    "unitPrice": "1.45", "gross": "43.50",
                    "discounts": [{"origin": "TIER:%1$s", "amount": "1.51"}], "comboAllocations": [],
                    "net": "41.99", "taxableBase": "41.99", "taxRate": "0.150000", "tax": "6.30"},
-                  {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 15, "isGift": false,
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 15, "isGift": false,
                    "unitPrice": "0.60", "gross": "9.00",
                    "discounts": [{"origin": "TIER:%1$s", "amount": "0.72"}], "comboAllocations": [],
                    "net": "8.28", "taxableBase": "8.28", "taxRate": "0.150000", "tax": "1.24"},
-                  {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 2, "isGift": true,
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 2, "isGift": true,
                    "origin": "GIFT:%2$s",
                    "unitPrice": "0.00", "gross": "0.00", "discounts": [], "comboAllocations": [],
                    "net": "0.00", "referenceValue": "0.90", "taxableBase": "0.00", "taxRate": "0.150000",
@@ -255,6 +264,95 @@ class QuoteLeversIT {
                  "taxableBase": "50.27", "taxes": "7.54", "total": "57.81"}""".formatted(EC_TIER, EC_GIFT)));
         assertIdentities(body);
         assertReadsBackUnchanged(EC, EC_CASH_CUSTOMER, body);
+    }
+
+    /**
+     * The levers of gt-alpha through E-01, in GTQ with two decimals and from the seed values: the 350 ml cola lists at
+     * 5.00 with 12% tax and the water at 4.00 with 12%; the tier rule on the 350 ml cola gives 5% from unit 12 and 10%
+     * from unit 24; one water is given for every 12 colas of 350 ml, repeatable; and Guatemala does not tax gifts. The
+     * cart is 24 colas of 350 ml on credit, gross 120.00. Units 12 to 23 earn 12 x 5.00 x 5% = 3.00 and unit 24 earns
+     * 1 x 5.00 x 10% = 0.50, one tier discount of 3.50. Net 116.50, tax 13.98. The 24 colas are 2 whole multiples of
+     * 12, so the gift line has 2 waters, which list at 2 x 4.00 = 8.00 and have no taxable base. The total is 116.50 +
+     * 13.98 = 130.48, within the 5,000.00 of credit.
+     */
+    @Test
+    void aGuatemalaQuoteAppliesTheSeededTierAndARepeatedUntaxedGift() {
+        MvcTestResult created = post(GT, GT_CREDIT_CUSTOMER, """
+                {"paymentMethod": "CREDIT", "lines": [{"sku": "BEV-COLA-350", "qty": 24}]}""");
+
+        JsonNode body = createdBody(created);
+        assertThat(body.required("currency").stringValue()).isEqualTo("GTQ");
+        assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
+                [
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 24, "isGift": false,
+                   "unitPrice": "5.00", "gross": "120.00",
+                   "discounts": [{"origin": "TIER:%1$s", "amount": "3.50"}], "comboAllocations": [],
+                   "net": "116.50", "taxableBase": "116.50", "taxRate": "0.120000", "tax": "13.98"},
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 2, "isGift": true,
+                   "origin": "GIFT:%2$s",
+                   "unitPrice": "0.00", "gross": "0.00", "discounts": [], "comboAllocations": [],
+                   "net": "0.00", "referenceValue": "8.00", "taxableBase": "0.00", "taxRate": "0.120000",
+                   "tax": "0.00"}
+                ]""".formatted(GT_TIER, GT_GIFT)));
+        assertThat(body.required("totals")).isEqualTo(JSON.readTree("""
+                {"grossSubtotal": "120.00",
+                 "discounts": [{"origin": "TIER:%1$s", "amount": "3.50"}],
+                 "gifts": [{"sku": "BEV-WATER-600", "qty": 2, "origin": "GIFT:%2$s"}],
+                 "taxableBase": "116.50", "taxes": "13.98", "total": "130.48"}""".formatted(GT_TIER, GT_GIFT)));
+        assertThat(body.required("credit")).isEqualTo(JSON.readTree("""
+                {"fits": true, "available": "5000.00", "shortfall": "0.00"}"""));
+        assertIdentities(body);
+        assertReadsBackUnchanged(GT, GT_CREDIT_CUSTOMER, body);
+    }
+
+    /**
+     * The levers of pe-alpha through E-01, in PEN with two decimals and from the seed values: the 350 ml cola lists at
+     * 2.50, the 1.5 l cola at 7.50, the chips at 1.80 and the water at 2.00, all with 18% tax; the combo sells 2 colas
+     * of 350 ml and 1 chips for 6.00; one water is given for a gross subtotal from 100.00, not repeatable; and Peru
+     * taxes gifts. The cart is 40 colas of 350 ml, 20 chips and 10 colas of 1.5 l, gross 211.00. The combo applies 20
+     * times, consuming the 40 colas (100.00) and the 20 chips (36.00) for 20 x 6.00 = 120.00, a discount of 16.00.
+     * Its exact shares, 16.00 x 100.00 / 136.00 = 11.7647 and 16.00 x 36.00 / 136.00 = 4.2353, truncate to 15.99, and
+     * the leftover cent goes to the larger remainder: 11.76 and 4.24. Colas of 350 ml: 100.00 - 11.76 = 88.24, tax
+     * 15.8832 rounded to 15.88. Chips: 36.00 - 4.24 = 31.76, tax 5.7168 rounded to 5.72. Colas of 1.5 l: 75.00, no
+     * lever, tax 13.50. The gross of 211.00 is twice the threshold, and still earns one water only, because the rule
+     * does not repeat. The water lists at 2.00, which is its taxable base, taxed 0.36. The taxable base is 195.00 +
+     * 2.00 = 197.00, the taxes 13.50 + 15.88 + 5.72 + 0.36 = 35.46, and the total 195.00 + 35.46 = 230.46.
+     */
+    @Test
+    void aPeruQuoteAppliesTheSeededComboAndATaxedGiftOnTheGrossSubtotal() {
+        MvcTestResult created = post(PE, PE_CASH_CUSTOMER, """
+                {"paymentMethod": "CASH",
+                 "lines": [{"sku": "BEV-COLA-350", "qty": 40}, {"sku": "SNK-CHIPS-45", "qty": 20},
+                           {"sku": "BEV-COLA-1500", "qty": 10}]}""");
+
+        JsonNode body = createdBody(created);
+        assertThat(body.required("currency").stringValue()).isEqualTo("PEN");
+        assertThat(body.required("lines")).isEqualTo(JSON.readTree("""
+                [
+                  {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "qty": 10, "isGift": false,
+                   "unitPrice": "7.50", "gross": "75.00", "discounts": [], "comboAllocations": [],
+                   "net": "75.00", "taxableBase": "75.00", "taxRate": "0.180000", "tax": "13.50"},
+                  {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 40, "isGift": false,
+                   "unitPrice": "2.50", "gross": "100.00", "discounts": [],
+                   "comboAllocations": [{"comboId": "%1$s", "amount": "11.76"}],
+                   "net": "88.24", "taxableBase": "88.24", "taxRate": "0.180000", "tax": "15.88"},
+                  {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 20, "isGift": false,
+                   "unitPrice": "1.80", "gross": "36.00", "discounts": [],
+                   "comboAllocations": [{"comboId": "%1$s", "amount": "4.24"}],
+                   "net": "31.76", "taxableBase": "31.76", "taxRate": "0.180000", "tax": "5.72"},
+                  {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 1, "isGift": true,
+                   "origin": "GIFT:%2$s",
+                   "unitPrice": "0.00", "gross": "0.00", "discounts": [], "comboAllocations": [],
+                   "net": "0.00", "referenceValue": "2.00", "taxableBase": "2.00", "taxRate": "0.180000",
+                   "tax": "0.36"}
+                ]""".formatted(PE_COMBO, PE_GIFT)));
+        assertThat(body.required("totals")).isEqualTo(JSON.readTree("""
+                {"grossSubtotal": "211.00",
+                 "discounts": [{"origin": "COMBO:%1$s", "amount": "16.00"}],
+                 "gifts": [{"sku": "BEV-WATER-600", "qty": 1, "origin": "GIFT:%2$s"}],
+                 "taxableBase": "197.00", "taxes": "35.46", "total": "230.46"}""".formatted(PE_COMBO, PE_GIFT)));
+        assertIdentities(body);
+        assertReadsBackUnchanged(PE, PE_CASH_CUSTOMER, body);
     }
 
     /**

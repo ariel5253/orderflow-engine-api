@@ -25,7 +25,7 @@ To run the service with its own PostgreSQL, from this repository alone:
 docker compose up --build
 ```
 
-Liquibase creates the schema when the service starts and seeds two tenants: `co-alpha` (Colombia, COP, scale 0) and `ec-alpha` (Ecuador, USD, scale 2). Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
+Liquibase creates the schema when the service starts and seeds four tenants, one for each country of the assignment: `co-alpha` (Colombia, COP, scale 0), `ec-alpha` (Ecuador, USD, scale 2), `gt-alpha` (Guatemala, GTQ, scale 2) and `pe-alpha` (Peru, PEN, scale 2). Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
 
 Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on `pricing.domain` and requires that at least 80% of the injected faults are detected.
 
@@ -40,6 +40,7 @@ Every business operation needs the `X-Tenant-Id` and `X-Customer-Id` headers. `A
 | E-03 | `POST /api/v1/orders` confirms a quote. It requires `Idempotency-Key` | 201 with `Location` |
 | E-04 | `GET /api/v1/orders/{orderId}` reads an order, rendered from its quote | 200 |
 | E-05 | `GET /api/v1/orders?customerId={id}&size=20` lists the customer's orders, newest first, with `size` at most 100 | 200 |
+| E-07 | `GET /api/v1/products` lists the tenant's products in SKU order, with list prices before levers and taxes. It only reads | 200 |
 
 Quote 25 colas on credit for a seeded customer with a 500,000 credit limit:
 
@@ -213,10 +214,11 @@ More cases in the same harness: `gift-policy-exempt/`, `gift-policy-taxed/`, `ro
 | Payment capture, cancellation and credit release | Not required |
 | Cart persistence | Not required. The cart travels in the quote request |
 | Quote revocation | Not required. It is the next step of the ADR's risk mitigation |
-| Catalog and lever administration | Not required. The migrations seed the data |
+| Catalog and lever administration | Not required. The migrations seed the data. The only catalog operation is a read-only product list (E-07), which feeds the optional web cart. It lives in `quoting` because it lists exactly what E-01 can price. No `catalog` module is added, since catalog administration stays out (SPEC §1) |
 | Tax categories and price history | Not required. Each SKU carries its tax rate, and each quote line keeps the price and rate in force when it was quoted |
 | Real push and ERP clients | Fakes behind ports prove the delivery guarantees. They deduplicate by `event_id` and can be told to fail |
 | OpenAPI file, deployment | Not required. The contract is `spec/api-contract.md` in the `orderflow-engine-docs` repository |
+| CORS configuration | Not needed. The web client's nginx forwards `/api/` to this service, so the browser sees one origin |
 | SonarQube or SonarCloud | It needs a server. It would import the JaCoCo XML report this build already produces, so CI can add it without project changes |
 | CI pipeline | Verification runs locally with `./mvnw verify`. A workflow would run the same command on every pull request |
 | Mutation testing in CI | PIT runs in the optional `mutation` profile before delivery. A nightly job, or a run on the changed files, needs only CI configuration |
@@ -225,7 +227,16 @@ More cases in the same harness: `gift-policy-exempt/`, `gift-policy-taxed/`, `ro
 
 The adoption path of each of the last five rows (today's state, how it is adopted, and its trigger) is in `spec/plan.md` §3 of the `orderflow-engine-docs` repository.
 
-Time spent: three working days (2026-10-13 to 2026-10-15), including the specification.
+### Time spent
+
+| Part | Measured time |
+|------|---------------|
+| The take-home (A1, A2, A3), including the specification | Three working days, 2026-10-13 to 2026-10-15 |
+| The assignment's optional screen: the order summary | 68 min |
+| Its container, the web client in the full stack and the web step of `test-all` | 55 min |
+| The extension beyond the assignment: the product list (E-07), the cart, the idempotent confirmation, the order, the store picker and My orders | 3 h 1 min |
+
+The web times are the working time of each slice, building and fixing it, taken from timestamps recorded at each step. Review time is not included. The slices were built between 2026-10-15 22:05 and 2026-10-16 06:15 (UTC-5), several of them in parallel. The screen alone exceeds the hour the assignment sets for it, once its tests and its container are counted.
 
 ## Repositories
 
@@ -233,7 +244,7 @@ Time spent: three working days (2026-10-13 to 2026-10-15), including the specifi
 |------------|------|
 | `orderflow-engine-api` (this one) | The deliverable: code, tests, this README, the ADR |
 | `orderflow-engine-docs` | Specification, contract, data model, architecture, diagrams |
-| `orderflow-engine-web` | The optional order-summary screen |
+| `orderflow-engine-web` | The optional web client: the order summary the assignment offers, and the ordering flow around it |
 | `orderflow-engine-infra` | The full stack with Docker Compose, and the workspace test command |
 | `orderflow-engine-tools` | Generators and checks for the documentation and the repositories |
 | `orderflow-engine-app` | Reserved for a future mobile app |

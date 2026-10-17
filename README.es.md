@@ -25,7 +25,7 @@ Para ejecutar el servicio con su propio PostgreSQL, solo desde este repositorio:
 docker compose up --build
 ```
 
-Liquibase crea el esquema cuando arranca el servicio y carga dos tenants: `co-alpha` (Colombia, COP, escala 0) y `ec-alpha` (Ecuador, USD, escala 2). Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
+Liquibase crea el esquema cuando arranca el servicio y carga cuatro tenants, uno por cada país de la prueba: `co-alpha` (Colombia, COP, escala 0), `ec-alpha` (Ecuador, USD, escala 2), `gt-alpha` (Guatemala, GTQ, escala 2) y `pe-alpha` (Perú, PEN, escala 2). Salud: `http://localhost:8080/actuator/health`. La configuración llega por variables de entorno. `.env.example` lista cada clave con un comentario. Cópialo a `.env` solo para cambiar un valor. `.env` nunca se versiona.
 
 Las pruebas de mutación son opcionales y más lentas: `./mvnw -Pmutation verify` ejecuta PIT sobre `pricing.domain` y exige que se detecte al menos el 80% de los fallos inyectados.
 
@@ -40,6 +40,7 @@ Toda operación de negocio exige las cabeceras `X-Tenant-Id` y `X-Customer-Id`. 
 | E-03 | `POST /api/v1/orders` confirma una cotización. Exige `Idempotency-Key` | 201 con `Location` |
 | E-04 | `GET /api/v1/orders/{orderId}` lee un pedido, armado desde su cotización | 200 |
 | E-05 | `GET /api/v1/orders?customerId={id}&size=20` lista los pedidos del cliente, del más reciente al más antiguo, con `size` de máximo 100 | 200 |
+| E-07 | `GET /api/v1/products` lista los productos del tenant en orden de SKU, con precios de lista antes de palancas e impuestos. Solo lee | 200 |
 
 Cotizar 25 colas a crédito para un cliente sembrado con un cupo de 500.000:
 
@@ -213,10 +214,11 @@ Más casos en el mismo arnés: `gift-policy-exempt/`, `gift-policy-taxed/`, `rou
 | Cobro, cancelación y liberación de cupo | No se piden |
 | Persistencia del carrito | No se pide. El carrito viaja en la petición de cotización |
 | Revocación de cotizaciones | No se pide. Es el siguiente paso de la mitigación del riesgo del ADR |
-| Administración de catálogo y palancas | No se pide. Las migraciones siembran los datos |
+| Administración de catálogo y palancas | No se pide. Las migraciones siembran los datos. La única operación de catálogo es una lista de productos de solo lectura (E-07), que alimenta el carrito web opcional. Vive en `quoting` porque lista exactamente lo que E-01 puede cotizar. No se agrega un módulo `catalog`, porque la administración del catálogo queda fuera (SPEC §1) |
 | Categorías de impuesto e historial de precios | No se piden. Cada SKU lleva su tasa de impuesto, y cada línea de cotización guarda el precio y la tasa vigentes al cotizar |
 | Clientes reales de push y ERP | Los fakes detrás de puertos prueban las garantías de entrega. Deduplican por `event_id` y se les puede ordenar que fallen |
 | Archivo OpenAPI, despliegue | No se piden. El contrato es `spec/api-contract.md` del repositorio `orderflow-engine-docs` (en inglés) |
+| Configuración CORS | No hace falta. El nginx del cliente web reenvía `/api/` a este servicio, así que el navegador ve un solo origen |
 | SonarQube o SonarCloud | Necesita un servidor. Importaría el reporte XML de JaCoCo que este build ya genera, así que CI puede agregarlo sin cambiar el proyecto |
 | Pipeline de CI | La verificación corre en local con `./mvnw verify`. Un workflow correría el mismo comando en cada pull request |
 | Pruebas de mutación en CI | PIT corre en el perfil opcional `mutation` antes de cada entrega. Un job nocturno, o una corrida sobre los archivos cambiados, solo requiere configuración de CI |
@@ -225,7 +227,16 @@ Más casos en el mismo arnés: `gift-policy-exempt/`, `gift-policy-taxed/`, `rou
 
 El camino de adopción de cada una de las últimas cinco filas (estado actual, cómo se adopta y su disparador) está en `spec/plan.md` §3 del repositorio `orderflow-engine-docs` (en inglés).
 
-Tiempo invertido: tres días de trabajo (del 2026-10-13 al 2026-10-15), incluida la especificación.
+### Tiempo invertido
+
+| Parte | Tiempo medido |
+|-------|---------------|
+| La prueba (A1, A2, A3), incluida la especificación | Tres días de trabajo, del 2026-10-13 al 2026-10-15 |
+| La pantalla opcional de la prueba: el resumen del pedido | 68 min |
+| Su contenedor, el cliente web en el stack completo y el paso web de `test-all` | 55 min |
+| La extensión más allá de la prueba: la lista de productos (E-07), el carrito, la confirmación idempotente, el pedido, el selector de tienda y Mis pedidos | 3 h 1 min |
+
+Los tiempos del cliente web son el tiempo de trabajo de cada parte, construyéndola y corrigiéndola, tomados de marcas de tiempo registradas en cada paso. No incluyen el tiempo de revisión. Las partes se construyeron entre el 2026-10-15 22:05 y el 2026-10-16 06:15 (UTC-5), varias en paralelo. La pantalla sola supera la hora que la prueba le asigna, una vez contados sus tests y su contenedor.
 
 ## Repositorios
 
@@ -233,7 +244,7 @@ Tiempo invertido: tres días de trabajo (del 2026-10-13 al 2026-10-15), incluida
 |-------------|-----|
 | `orderflow-engine-api` (este) | El entregable: código, pruebas, este README, el ADR |
 | `orderflow-engine-docs` | Especificación, contrato, modelo de datos, arquitectura, diagramas |
-| `orderflow-engine-web` | La pantalla opcional de resumen del pedido |
+| `orderflow-engine-web` | El cliente web opcional: el resumen del pedido que ofrece la prueba y el flujo de compra a su alrededor |
 | `orderflow-engine-infra` | El stack completo con Docker Compose y el comando de pruebas del espacio de trabajo |
 | `orderflow-engine-tools` | Generadores y verificaciones de la documentación y de los repositorios |
 | `orderflow-engine-app` | Reservado para una futura app móvil |

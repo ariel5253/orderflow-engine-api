@@ -75,6 +75,15 @@ class ErrorCatalogI18nTest {
         }
     }
 
+    /** The Spanish texts call a gift "obsequio", the word the client and the README use, and never "regalo". */
+    @ParameterizedTest
+    @ValueSource(strings = {BASE, SPANISH})
+    void theSpanishBundlesCallAGiftObsequio(String bundle) throws IOException {
+        for (Map.Entry<String, String> entry : load(bundle).entrySet()) {
+            assertThat(entry.getValue()).as("%s in %s", entry.getKey(), bundle).doesNotContainIgnoringCase("regalo");
+        }
+    }
+
     /** Decodes strictly, so a bundle saved in any encoding other than UTF-8 fails instead of loading garbled. */
     private static Map<String, String> load(String bundle) throws IOException {
         try (InputStream in = ErrorCatalogI18nTest.class.getResourceAsStream("/i18n/" + bundle)) {

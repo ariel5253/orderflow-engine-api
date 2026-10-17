@@ -57,10 +57,10 @@ class QuoteConfirmRegressionIT {
      */
     private static final String CO_CART_LINES_AFTER_THE_CHANGE = """
             [
-              {"sku": "BEV-COLA-1500", "description": "Cola 1.5 l", "qty": 3, "isGift": false,
+              {"sku": "BEV-COLA-1500", "description": "Gaseosa cola 1,5 l", "qty": 3, "isGift": false,
                "unitPrice": "5200", "gross": "15600", "discounts": [], "comboAllocations": [],
                "net": "15600", "taxableBase": "15600", "taxRate": "0.190000", "tax": "2964"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 2, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 2, "isGift": false,
                "unitPrice": "1900", "gross": "3800", "discounts": [], "comboAllocations": [],
                "net": "3800", "taxableBase": "3800", "taxRate": "0.050000", "tax": "190"}
             ]""";
@@ -81,16 +81,16 @@ class QuoteConfirmRegressionIT {
      */
     private static final String EVERY_COMPONENT_LINES = """
             [
-              {"sku": "BEV-COLA-350", "description": "Cola 350 ml", "qty": 30, "isGift": false,
+              {"sku": "BEV-COLA-350", "description": "Gaseosa cola 350 ml", "qty": 30, "isGift": false,
                "unitPrice": "2500", "gross": "75000",
                "discounts": [{"origin": "TIER:01a13cdb-cc00-7001-8003-000000000001", "amount": "125"}],
                "comboAllocations": [{"comboId": "01a13cdb-cc00-7001-8004-000000000001", "amount": "13235"}],
                "net": "61640", "taxableBase": "61640", "taxRate": "0.190000", "tax": "11712"},
-              {"sku": "SNK-CHIPS-45", "description": "Chips 45 g", "qty": 10, "isGift": false,
+              {"sku": "SNK-CHIPS-45", "description": "Papas fritas 45 g", "qty": 10, "isGift": false,
                "unitPrice": "1800", "gross": "18000", "discounts": [],
                "comboAllocations": [{"comboId": "01a13cdb-cc00-7001-8004-000000000001", "amount": "4765"}],
                "net": "13235", "taxableBase": "13235", "taxRate": "0.050000", "tax": "662"},
-              {"sku": "BEV-WATER-600", "description": "Water 600 ml", "qty": 1, "isGift": true,
+              {"sku": "BEV-WATER-600", "description": "Agua 600 ml", "qty": 1, "isGift": true,
                "origin": "GIFT:01a13cdb-cc00-7001-8005-000000000001",
                "unitPrice": "0", "gross": "0", "discounts": [], "comboAllocations": [],
                "net": "0", "referenceValue": "1500", "taxableBase": "1500", "taxRate": "0.190000", "tax": "285"}

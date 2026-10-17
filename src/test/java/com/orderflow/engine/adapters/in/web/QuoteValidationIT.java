@@ -32,7 +32,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * AC-14 and SPEC BR-00: a quantity that is not a whole number above zero is 400 INVALID_QUANTITY, an empty cart is 400
+ * AC-14 and SPEC BR-00: a quantity that is not a whole number from 1 to 1,000,000, also after the lines of a repeated
+ * SKU are merged, or a gift quantity a rule derives above 1,000,000, is 400 INVALID_QUANTITY; an empty cart is 400
  * CART_EMPTY, and a SKU the tenant does not sell is 422 UNKNOWN_SKU. A malformed request, an unknown tenant or
  * customer, and a credit quote without a credit account fail with their own codes. A rejected request stores nothing.
  * Every test runs in a transaction that is rolled back, so the database starts with no quote.
@@ -49,6 +50,11 @@ class QuoteValidationIT {
 
     private static final String QUOTES = "/api/v1/quotes";
 
+    /** The seeded co-alpha products of the gift rule a test adds: the 1.5 l cola and the 600 ml water. */
+    private static final UUID CO_COLA_1500 = UUID.fromString("01a13cdb-cc00-7001-8002-000000000002");
+    private static final UUID CO_WATER_600 = UUID.fromString("01a13cdb-cc00-7001-8002-000000000004");
+    private static final UUID TEST_GIFT_RULE = UUID.fromString("01a13cdb-cc00-7001-8005-0000000000f1");
+
     @Autowired
     private MockMvcTester mvc;
 
@@ -56,8 +62,8 @@ class QuoteValidationIT {
     private JdbcClient jdbc;
 
     @ParameterizedTest(name = "qty {0}")
-    @ValueSource(strings = {"0", "-1", "0.5", "2.5", "1e-3", "9223372036854775808", "2147483648"})
-    void aQuantityThatIsNotAWholeNumberFromOneToTheLineLimitIsInvalid(String qty) {
+    @ValueSource(strings = {"0", "-1", "0.5", "2.5", "1e-3", "1000001", "2147483648", "9223372036854775808"})
+    void aQuantityThatIsNotAWholeNumberFromOneToTheBoundIsInvalid(String qty) {
         MvcTestResult result = post(CO, CO_CASH_CUSTOMER,
                 "{\"paymentMethod\": \"CASH\", \"lines\": [{\"sku\": \"BEV-COLA-1500\", \"qty\": " + qty + "}]}");
 
@@ -65,11 +71,48 @@ class QuoteValidationIT {
     }
 
     @Test
-    void aQuantityIsCheckedAgainstTheLineLimitAfterRepeatedSkusAreMerged() {
+    void aQuantityOfExactlyTheBoundIsQuoted() {
+        MvcTestResult result = post(CO, CO_CASH_CUSTOMER, """
+                {"paymentMethod": "CASH", "lines": [{"sku": "BEV-COLA-1500", "qty": 1000000}]}""");
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result).bodyJson().extractingPath("$.lines[0].qty").isEqualTo(1_000_000);
+    }
+
+    @Test
+    void aQuantityIsCheckedAgainstTheBoundAfterRepeatedSkusAreMerged() {
+        // Neither line is above the bound on its own: only their merged quantity is.
         MvcTestResult result = post(CO, CO_CASH_CUSTOMER, """
                 {"paymentMethod": "CASH", "lines": [
-                  {"sku": "BEV-COLA-1500", "qty": 2147483647},
-                  {"sku": "BEV-COLA-1500", "qty": 1}]}""");
+                  {"sku": "BEV-COLA-1500", "qty": 999999},
+                  {"sku": "BEV-COLA-1500", "qty": 2}]}""");
+
+        assertRejected(result, HttpStatus.BAD_REQUEST, "INVALID_QUANTITY");
+    }
+
+    /**
+     * The seeded gift rules cannot derive a gift above the bound from a valid cart, so this test adds a rule, rolled
+     * back with the test: two waters for each 1.5 l cola. 500,000 colas derive exactly the bound, 1,000,000 waters.
+     */
+    @Test
+    void aGiftOfExactlyTheBoundIsQuoted() {
+        addTwoWatersPerColaGiftRule();
+
+        MvcTestResult result = post(CO, CO_CASH_CUSTOMER, """
+                {"paymentMethod": "CASH", "lines": [{"sku": "BEV-COLA-1500", "qty": 500000}]}""");
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result).bodyJson().extractingPath("$.totals.gifts[0].origin").isEqualTo("GIFT:" + TEST_GIFT_RULE);
+        assertThat(result).bodyJson().extractingPath("$.totals.gifts[0].qty").isEqualTo(1_000_000);
+    }
+
+    /** 500,001 colas, each within the bound, derive 1,000,002 waters: a 400, never a 500 or a wrapped quantity. */
+    @Test
+    void aGiftQuantityARuleDerivesAboveTheBoundIsInvalid() {
+        addTwoWatersPerColaGiftRule();
+
+        MvcTestResult result = post(CO, CO_CASH_CUSTOMER, """
+                {"paymentMethod": "CASH", "lines": [{"sku": "BEV-COLA-1500", "qty": 500001}]}""");
 
         assertRejected(result, HttpStatus.BAD_REQUEST, "INVALID_QUANTITY");
     }
@@ -242,6 +285,19 @@ class QuoteValidationIT {
                 .exchange();
 
         assertRejected(result, HttpStatus.BAD_REQUEST, "TENANT_NOT_FOUND");
+    }
+
+    /** An active, repeatable co-alpha rule: two waters 600 ml for each 1.5 l cola. */
+    private void addTwoWatersPerColaGiftRule() {
+        jdbc.sql("""
+                        INSERT INTO gift_rules (tenant_id, id, trigger_product_id, trigger_family_code, min_qty,
+                                                min_gross, gift_product_id, gift_qty, repeatable, active)
+                        VALUES (:tenantId, :id, :cola, NULL, 1, NULL, :water, 2, true, true)""")
+                .param("tenantId", CO)
+                .param("id", TEST_GIFT_RULE)
+                .param("cola", CO_COLA_1500)
+                .param("water", CO_WATER_600)
+                .update();
     }
 
     private MvcTestResult post(String tenant, UUID customer, String body) {

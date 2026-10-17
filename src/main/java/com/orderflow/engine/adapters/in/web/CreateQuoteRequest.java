@@ -9,8 +9,9 @@ import java.util.List;
 /**
  * The body of {@code POST /api/v1/quotes} (api-contract E-01). A missing or null field makes the body malformed. A
  * quantity is read as a decimal, so one that is not a whole number is reported as INVALID_QUANTITY instead of being
- * truncated or rejected as an unreadable body. Quantities below one are left to the cart normalization, which rejects
- * every invalid cart in one place (SPEC BR-00).
+ * truncated or rejected as an unreadable body, and so is one too large for a long, which is above the bound of SPEC
+ * BR-00 as well. Quantities below one or above that bound are left to the cart normalization, which rejects every
+ * invalid cart in one place.
  */
 public record CreateQuoteRequest(PaymentMethod paymentMethod, List<Line> lines) {
 
