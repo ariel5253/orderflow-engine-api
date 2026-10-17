@@ -25,7 +25,7 @@ To run the service with its own PostgreSQL, from this repository alone:
 docker compose up --build
 ```
 
-Liquibase creates the schema when the service starts and seeds two tenants: `co-alpha` (Colombia, COP, scale 0) and `ec-alpha` (Ecuador, USD, scale 2). Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
+Liquibase creates the schema when the service starts and seeds four tenants, one for each country of the assignment: `co-alpha` (Colombia, COP, scale 0), `ec-alpha` (Ecuador, USD, scale 2), `gt-alpha` (Guatemala, GTQ, scale 2) and `pe-alpha` (Peru, PEN, scale 2). Health: `http://localhost:8080/actuator/health`. Configuration comes from environment variables. `.env.example` lists every key with a comment. Copy it to `.env` only to change a value. `.env` is never committed.
 
 Mutation testing is optional and slower: `./mvnw -Pmutation verify` runs PIT on `pricing.domain` and requires that at least 80% of the injected faults are detected.
 

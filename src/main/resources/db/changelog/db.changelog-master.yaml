@@ -23,3 +23,6 @@ databaseChangeLog:
   - include:
       file: 2026/2026-10-16-001-seed-names-in-spanish.yaml
       relativeToChangelogFile: true
+  - include:
+      file: 2026/2026-10-16-002-seed-gt-and-pe.yaml
+      relativeToChangelogFile: true
