@@ -17,7 +17,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** SPEC BR-00 and AC-13: the engine prices only the normalized cart. */
+/**
+ * SPEC BR-00, AC-13 and AC-14: the engine prices only the normalized cart, and every quantity of it, after the lines of
+ * a repeated SKU are merged, is a whole number from 1 to 1,000,000.
+ */
 class CartNormalizationTest {
 
     private static final CurrencyPolicy COP = new CurrencyPolicy("COP", 0, RoundingMode.HALF_UP);
@@ -132,9 +135,31 @@ class CartNormalizationTest {
     }
 
     @Test
-    void rejectsAMergedQuantityThatDoesNotFitALong() {
+    void acceptsAQuantityOfExactlyTheBound() {
+        assertThat(CartNormalizer.normalize(cart(line("SNK-CHIPS-45", 1_000_000L))).lines())
+                .containsExactly(line("SNK-CHIPS-45", 1_000_000L));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1_000_001L, 2_147_483_648L, Long.MAX_VALUE})
+    void rejectsAQuantityAboveTheBound(long qty) {
+        assertRejected(() -> CartNormalizer.normalize(cart(line("SNK-CHIPS-45", qty))), Code.INVALID_QUANTITY)
+                .withMessageContaining("SNK-CHIPS-45");
+        assertRejected(() -> engine.price(cart(line("SNK-CHIPS-45", qty)), CO_ALPHA), Code.INVALID_QUANTITY);
+    }
+
+    @Test
+    void acceptsTheLinesOfARepeatedSkuThatMergeToExactlyTheBound() {
+        assertThat(CartNormalizer.normalize(
+                        cart(line("SNK-CHIPS-45", 500_000L), line("SNK-CHIPS-45", 500_000L))).lines())
+                .containsExactly(line("SNK-CHIPS-45", 1_000_000L));
+    }
+
+    @Test
+    void rejectsTheLinesOfARepeatedSkuThatMergeAboveTheBound() {
+        // Neither line is above the bound on its own: only their merged quantity is.
         assertRejected(() -> CartNormalizer.normalize(
-                        cart(line("SNK-CHIPS-45", Long.MAX_VALUE), line("SNK-CHIPS-45", 1))),
+                        cart(line("SNK-CHIPS-45", 500_000L), line("SNK-CHIPS-45", 500_001L))),
                 Code.INVALID_QUANTITY)
                 .withMessageContaining("SNK-CHIPS-45");
     }
