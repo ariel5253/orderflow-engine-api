@@ -40,6 +40,7 @@ Every business operation needs the `X-Tenant-Id` and `X-Customer-Id` headers. `A
 | E-03 | `POST /api/v1/orders` confirms a quote. It requires `Idempotency-Key` | 201 with `Location` |
 | E-04 | `GET /api/v1/orders/{orderId}` reads an order, rendered from its quote | 200 |
 | E-05 | `GET /api/v1/orders?customerId={id}&size=20` lists the customer's orders, newest first, with `size` at most 100 | 200 |
+| E-07 | `GET /api/v1/products` lists the tenant's products in SKU order, with list prices before levers and taxes. It only reads | 200 |
 
 Quote 25 colas on credit for a seeded customer with a 500,000 credit limit:
 
@@ -213,7 +214,7 @@ More cases in the same harness: `gift-policy-exempt/`, `gift-policy-taxed/`, `ro
 | Payment capture, cancellation and credit release | Not required |
 | Cart persistence | Not required. The cart travels in the quote request |
 | Quote revocation | Not required. It is the next step of the ADR's risk mitigation |
-| Catalog and lever administration | Not required. The migrations seed the data |
+| Catalog and lever administration | Not required. The migrations seed the data. The only catalog operation is a read-only product list (E-07), which feeds the optional web cart. It lives in `quoting` because it lists exactly what E-01 can price. No `catalog` module is added, since catalog administration stays out (SPEC §1) |
 | Tax categories and price history | Not required. Each SKU carries its tax rate, and each quote line keeps the price and rate in force when it was quoted |
 | Real push and ERP clients | Fakes behind ports prove the delivery guarantees. They deduplicate by `event_id` and can be told to fail |
 | OpenAPI file, deployment | Not required. The contract is `spec/api-contract.md` in the `orderflow-engine-docs` repository |

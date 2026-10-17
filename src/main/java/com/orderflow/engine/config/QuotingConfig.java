@@ -4,6 +4,8 @@ import com.orderflow.engine.pricing.domain.PricingEngine;
 import com.orderflow.engine.quoting.CreateQuoteUseCase;
 import com.orderflow.engine.quoting.CreditAdvisor;
 import com.orderflow.engine.quoting.GetQuoteUseCase;
+import com.orderflow.engine.quoting.ListProductsUseCase;
+import com.orderflow.engine.quoting.ProductCatalog;
 import com.orderflow.engine.quoting.QuoteRepository;
 import com.orderflow.engine.quoting.SnapshotProvider;
 import java.time.Clock;
@@ -11,8 +13,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires the quote use cases to their ports. The pricing engine is pure and knows nothing of Spring, so it is created
- * here rather than scanned.
+ * Wires the quote use cases and the product list to their ports. The pricing engine is pure and knows nothing of
+ * Spring, so it is created here rather than scanned.
  */
 @Configuration(proxyBeanMethods = false)
 public class QuotingConfig {
@@ -32,5 +34,10 @@ public class QuotingConfig {
     GetQuoteUseCase getQuoteUseCase(SnapshotProvider snapshots, QuoteRepository quotes, CreditAdvisor creditAdvisor,
             Clock clock) {
         return new GetQuoteUseCase(snapshots, quotes, creditAdvisor, clock);
+    }
+
+    @Bean
+    ListProductsUseCase listProductsUseCase(SnapshotProvider snapshots, ProductCatalog catalog) {
+        return new ListProductsUseCase(snapshots, catalog);
     }
 }
